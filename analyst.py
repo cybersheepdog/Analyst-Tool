@@ -1,6 +1,6 @@
 # Analyst Tool
 # Author: Jeremy Wiedner (@JeremyWiedner)
-# License:
+# License: BSD 3-Clause
 # Purpose:  To help automate some of an analyst workflow as much as possible.  Simply copy an Domain, Hash, IP Address, Port # or Windows Event ID and the main script will pull the 
 
 import datetime
