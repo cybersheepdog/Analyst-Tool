@@ -12,7 +12,7 @@ A python script in Jupyter Notebook to automate as much as possible an analyst's
 
 Once configured simply copy one of the above items and program will do the rest based on the configured modules and present the information to the screen. 
 
-In addition I want to make this tool to be beneficial to both new and seasoned analysts alike where it automatically pulls in useful information by simply copying to the clipboard. For more see the planned features & updates section.
+In addition I want to make this tool to be beneficial to both new and seasoned analysts alike where it automatically presents useful information by simply copying something to the clipboard. The For more see the planned features & updates section.
 
 ### Requirements
 - ipwhois
@@ -20,24 +20,34 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
 - validators
 
 ## Setup & Configuration
+- Sign up for the free API's of any of the modules you wish to use
+     - Current Modules Available:
+          - Abuse IP DB - Requires an API Key
+          - AlienVault OTX - Reaquires and API Key
+          - VirusTotal - Requires an API Key
+     - **NOTE:**  It is recommended to at least configure the VirusTotal module.
 - Install [Anaconda](https://www.anaconda.com/products/individual)
 - Open Anaconda prompt and type:
-- - ```conda update conda```
+     - ```conda update conda```
 - Once the update finishes navigate to the directory where you cloned this repository
 - In the Anacanda prompt type:
-- ```pip install -r requirements.txt```
+     - ```pip install -r requirements.txt```
 - Once this completes simply run jupyter notebook
-- - If not run from the directory you cloned this repository to then navigate there now.
-- - - It should look like the following:
-- - - ![Jupyter Notebook Start Direcory](/graphics/start_directory.png)
-- 
+     - If not run from the directory you cloned this repository to then navigate there now.
+          - It should look like the following:
+![Jupyter Notebook Start Direcory](/graphics/start_directory.png)
+- Left click on the file named "Analyst Tool.ipynb"
+- You will then be presented with the following which is the actual jupyter notebook:
+![Jupyter Notebook Start Direcory](/graphics/run.png)
+- To begin using the notebook you can run it in one of 2 ways:
+- 1. Left click the Run button
+- 2. Ensure the box with the code is highlighted in blue (done by left clicking once) and pressing "Shift + Enter"
+- It is now running and you should see the following output
+     - **Note:** This will only occurr the first time you run the notebook each time.  As it runs on a continuous loop to monitor your clipboard until killed.
+- It will output the following
+     - **Note** Your output may be different if you do not have all of the modules below configured.
+![Jupyter Notebook Start Direcory](/graphics/1st_run.png)
 
-Current Modules Available:
-- Abuse IP DB - Requires an API Key
-- AlienVault OTX - Reaquires and API Key
-- VirusTotal - Requires an API Key
-
-NOTE:  It is recommended to at least configure the VirusTotal module.
 
 ## Sample Ouput:
 ### IP Address:
@@ -54,22 +64,19 @@ NOTE:  It is recommended to at least configure the VirusTotal module.
 
 ## Planned features & updates
 - [ ] IP Addresses:
-- - [ ] Ability to check OTX if IP is in a pulse for specific contributors
-- - [ ] Bulk IP Lookup
+     - [ ] Ability to check OTX if IP is in a pulse for specific contributors
+     - [ ] Bulk IP Lookup
 - [ ] Hashes:
-- - [ ] Bulk hash lookup
-- - [] Flag malicious imports
-- - [ ] Brief description of what malicious import does
-- - [ ] Additional context & lookups
+     - [ ] Bulk hash lookup
+     - [ ] Flag malicious imports
+     - [ ] Brief description of what malicious import does
+     - [ ] Additional context & lookups
 - [ ]  Domains:
-- - [ ] Bulk Domain lookup
-- - [ ] Better domain validation
-- - [ ] Additional context & lookups
+     - [ ] Bulk Domain lookup
+     - [ ] Better domain validation
+     - [ ] Additional context & lookups
 - [ ] [Common Windows Security Identifier Decoding](https://docs.microsoft.com/en-us/windows/security/identity-protection/access-control/security-identifiers)
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
-- [ ] Bulk IP lookup
-- [ ] Bulk Hash lookup
-- [ ] Bulk domain lookup
 - [ ] [CVE Detail lookup](https://nvd.nist.gov/vuln/detail/CVE-2022-23307)
 - [ ] [MITRE ATT&CK Lookup](https://attack.mitre.org/)
 - [ ] Sysmon ID Lookup & explanation
