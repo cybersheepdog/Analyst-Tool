@@ -644,9 +644,9 @@ def print_ip_detections(vt_ip_response):
         print('\t{:<25} {}'.format('Malicious:',alert_categories['malicious']))
         
     if alert_categories['malware'] >= 10:
-        print('\t{:<25} {}'.format(color.RED + 'Malware:' + color.END,alert_categories['malware'])) 
+        print('\t{:<31} {}'.format(color.RED + 'Malware:' + color.END,alert_categories['malware'])) 
     elif alert_categories['malware'] >= 5:
-        print('\t{:<25} {}'.format(color.ORANGE + 'Malware:' + color.END,alert_categories['malware']))
+        print('\t{:<34} {}'.format(color.ORANGE + 'Malware:' + color.END,alert_categories['malware']))
     else:
         print('\t{:<25} {}'.format('Malware:',alert_categories['malware']))
     
