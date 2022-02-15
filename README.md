@@ -26,6 +26,20 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
           - AlienVault OTX - Reaquires and API Key
           - VirusTotal - Requires an API Key
      - **NOTE:**  It is recommended to at least configure the VirusTotal module.
+- Open the config.ini file and place your API Keys in the appropriate place
+```
+[ABUSE_IP_DB]
+accept = application/json
+key = API_KEY_GOES_HERE
+
+[VIRUS_TOTAL]
+accept = application/json
+x-apikey = API_KEY_GOES_HERE
+
+[ALIEN_VAULT_OTX]
+otx_api_key = API_KEY_GOES_HERE
+server = https://otx.alienvault.com/
+```
 - Install [Anaconda](https://www.anaconda.com/products/individual)
 - Open Anaconda prompt and type:
      - ```conda update conda```
