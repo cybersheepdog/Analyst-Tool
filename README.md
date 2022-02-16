@@ -1,5 +1,7 @@
 # Analyst-Tool
 [![Build Status](https://img.shields.io/badge/platform-Windows-blue.svg)](https://shields.io/)
+![Maintenance](https://img.shields.io/maintenance/yes/2022.svg?style=flat-square)
+[![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 
 Linux support will be added in the future.
 
@@ -105,4 +107,5 @@ server = https://otx.alienvault.com/
 - [ ] Email reputation checks
 
 ## Author
-* Jeremy Wiedner [@JeremyWiedner](https://twitter.com/JeremyWiedner)
+* Jeremy Wiedner   [![Twitter](https://img.shields.io/twitter/follow/JeremyWiedner?style=social)](https://twitter.com/JeremyWiedner)
+
