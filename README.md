@@ -2,6 +2,7 @@
 [![Build Status](https://img.shields.io/badge/platform-Windows-blue.svg)](https://shields.io/)
 ![Maintenance](https://img.shields.io/maintenance/yes/2022.svg?style=flat-square)
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
+![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
 Linux support will be added in the future.
 
