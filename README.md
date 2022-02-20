@@ -4,11 +4,11 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
-**Linux support** is here. To run the tool in Linux without the need for Jupyter Notebook simply run:
+**Linux support** is here. The color coding works perfectly in the linux terminal. To run the tool in Linux without the need for Jupyter Notebook simply run:
 ```
 python analyst_tool.py
 ```
-The color coding works perfectly in the linux terminal.
+
 
 A python script in Jupyter Notebook to automate as much as possible an analyst's investigation and intelligence gathering for:
 - IP addresses
