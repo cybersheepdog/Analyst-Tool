@@ -1,10 +1,14 @@
 # Analyst-Tool
-[![Build Status](https://img.shields.io/badge/platform-Windows-blue.svg)](https://shields.io/)
+[![Build Status](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue.svg)](https://shields.io/)
 ![Maintenance](https://img.shields.io/maintenance/yes/2022.svg?style=flat-square)
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
-Linux support will be added in the future.
+**Linux support** is here. To run the tool in Linux without the need for Jupyter Notebook simply run:
+```
+python analyst_tool.py
+```
+The color coding works perfectly in the linux terminal.
 
 A python script in Jupyter Notebook to automate as much as possible an analyst's investigation and intelligence gathering for:
 - IP addresses
@@ -20,6 +24,7 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
 ### Requirements
 - ipwhois
 - OTXv2
+- pyperclip
 - validators
 
 ## Setup & Configuration
@@ -106,6 +111,7 @@ server = https://otx.alienvault.com/
 - [ ] Color coding for expired certificates
 - [ ] Color coding for newly created certificates
 - [ ] Email reputation checks
+- [X] Linux Support
 
 ## Author
 * Jeremy Wiedner   [![Twitter](https://img.shields.io/twitter/follow/JeremyWiedner?style=social)](https://twitter.com/JeremyWiedner)
