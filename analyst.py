@@ -9,7 +9,7 @@ import json
 import re
 import requests
 import time
-import win32clipboard
+from pyperclip import paste
 import validators
 from OTXv2 import OTXv2
 from OTXv2 import IndicatorTypes
@@ -277,9 +277,10 @@ def get_clipboard_contents():
     Example usage:  suspect_ip = get_clipboard_contents()
     
     """
-    win32clipboard.OpenClipboard()
-    clipboard_contents = win32clipboard.GetClipboardData().strip()
-    win32clipboard.CloseClipboard()
+    #win32clipboard.OpenClipboard()
+    #clipboard_contents = win32clipboard.GetClipboardData().strip()
+    #win32clipboard.CloseClipboard()
+    clipboard_contents = paste().strip()
     return clipboard_contents        
         
 def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx):

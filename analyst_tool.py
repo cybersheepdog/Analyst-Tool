@@ -1,0 +1,2 @@
+from analyst import *
+analyst()

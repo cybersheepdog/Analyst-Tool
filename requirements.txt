@@ -1,3 +1,4 @@
 ipwhois
 OTXv2
+pyperclip
 validators
