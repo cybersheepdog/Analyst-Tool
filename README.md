@@ -113,7 +113,7 @@ AlienVault OTX IP Report:
 
 ## Planned features & updates
 - [ ] IP Addresses:
-     - [X] Ability to check OTX if IP is in a pulse for specific contributors
+     - [X] ~~Ability to check OTX if IP is in a pulse for specific contributors~~
      - [ ] Bulk IP Lookup
 - [ ] Hashes:
      - [ ] Bulk hash lookup
@@ -138,7 +138,7 @@ AlienVault OTX IP Report:
 - [ ] Color coding for expired certificates
 - [ ] Color coding for newly created certificates
 - [ ] Email reputation checks
-- [X] Linux Support
+- [X] ~~Linux Support~~
 
 ## Author
 * Jeremy Wiedner   [![Twitter](https://img.shields.io/twitter/follow/JeremyWiedner?style=social)](https://twitter.com/JeremyWiedner)
