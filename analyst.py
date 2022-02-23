@@ -57,6 +57,7 @@ def analyst():
     """
     abuse_ip_db_headers = create_abuse_ip_db_headers_from_config()
     otx = create_av_otx_headers_from_config()
+    otx_intel_list = get_otx_intel_list_from_config()
     virus_total_headers = create_virus_total_headers_from_config()
     clipboard_contents = get_clipboard_contents()
 
@@ -84,7 +85,7 @@ def analyst():
                         pass
                     elif ipaddress.IPv4Address(clipboard_contents):
                         suspect_ip = clipboard_contents
-                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx)
+                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list)
                     else: 
                         continue
             except:
@@ -271,6 +272,46 @@ def create_virus_total_headers_from_config():
             print("Please add your VirusTotal API Key to the config.ini file if you want to use this module.")
             virus_total_headers = ''       
         
+def determine_specific_otx_intel(otx_results, otx_intel_list):
+    """Takes a list of OTX users and checks the OTX query results to see if the suspect IP appears in any of their pulses.
+    
+    Required Parameters:
+        OTX Results:  Derived from the "print_alient_vault_ip_results" function.
+        
+        OTX Intel List: Derived from the config.ini file and the function "get_otx_intel_list_from_config".  should be a comma seperated list like
+                author1,author2,etc..
+    
+    """
+    intel_pulse = ''
+    intel_pulse_created = ''
+    intel_pulse_updated = ''
+    pulse_list = []
+    author_list = []
+    #count = 0
+    #if otx_intel_list == None:
+    #    pass
+    #else:
+    #    intel_count = len(otx_intel_list)
+
+    for pulse in otx_results['general']['pulse_info']['pulses']:
+        if pulse['author']['username'] in otx_intel_list:
+                intel_pulse = 'https://otx.alienvault.com/pulse/' + str(pulse['id'])
+                print('\t{:<34} {}'.format(color.GREEN + pulse['author']['username'] + ' Intel:' + color.END,'Yes'))
+                print('\t{:<25} {}'.format('Pulse Created:',pulse['created']))
+                print('\t{:<25} {}'.format('Pulse Modifed:',pulse['modified']))
+                print('\t{:<25} {}'.format('Pulse:',intel_pulse))
+                #if count == 
+                print('\n')
+                author_list.append(pulse['author']['username'])
+
+    for author in otx_intel_list:
+        if author in author_list:
+            pass
+        else:
+            print('\t{:<25} {}'.format(author +  ' Intel:','No'))
+
+
+
 def get_clipboard_contents():
     """Gets the contents from the Windows clipboard and returns it so that it can be uesed in other functions.
     
@@ -283,7 +324,7 @@ def get_clipboard_contents():
     clipboard_contents = paste().strip()
     return clipboard_contents        
         
-def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx):
+def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list):
     """ A function to call the various IP modules if they are enabled and display them in order.  
     
     This function requires the following 4 parameters:
@@ -294,7 +335,9 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         AlienVault OTX Headers: Obtained automatically from the config.ini file and  the create_av_otx_headers_from_config function.
         
         VirusTotal Headers: Obtained automatically from the config.ini file and  the create_virus_total_headers_from_config function.
-    
+      
+        Otx intel list: derived from the function get_otx_intel_list_from_config
+
     Note:  The 3 header parameters are all required even if you have not configured and API Key.  The function will validate if they are configured and pass over the ones that are not.        
     
     """
@@ -326,8 +369,38 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         print(color.UNDERLINE + '\nAlienVault OTX:' + color.END)
         print('\tAlienVault not configured.')
     else:  
-        print_alient_vault_ip_results(otx, suspect_ip)
+        print_alient_vault_ip_results(otx, suspect_ip, otx_intel_list)
         
+
+def get_otx_intel_list_from_config():
+    """
+    Reads the config.ini file to pull out the list Intel providers and returns a list object of those providers.
+    
+    Reads in the AbuseIP DB API Key from the config.ini file.
+    
+    Note:  You are not required to use this module.  If you do not wish to use it then you can leave the config file as is with intel_list = None
+
+    """
+    config_object = ConfigParser()
+    try:
+        config_object.read("config.ini")
+    except:
+        print("Error with config.ini.")
+    else:
+        intel_list = config_object["OTX_INTEL"]
+
+    if intel_list['intel_list']:
+        otx_intel_list = intel_list['intel_list'].split(",")
+        for line in otx_intel_list:
+            line = line.strip()
+        print('OTX Intel providers configured.')
+        return otx_intel_list
+    else:
+        print('OTX Intel Proiders not configured.')
+        otx_intel_list = ''
+        return otx_intel_list
+
+
 def get_vt_ip_results(suspect_ip, virus_total_headers):
     """A fuction to form the api query for an IP address to VirusTotal and pull back the results.  It then calls a 2nd function to process those results.
 
@@ -481,7 +554,7 @@ def open_wid_page(wevid):
     wevid_url = weivd_url.replace("W_EVID", wevid)
     print("\n" + wevid_url)
 
-def print_alient_vault_ip_results(otx, suspect_ip):
+def print_alient_vault_ip_results(otx, suspect_ip, otx_intel_list):
     """Takes the OTX Headers and suspect IP, pulls back inforamtion from OTX and prints it to the screen.
     
     This function requires the following 4 parameters:
@@ -503,10 +576,17 @@ def print_alient_vault_ip_results(otx, suspect_ip):
     
     print(color.UNDERLINE + "\nAlienVault OTX IP Report:"+ color.END)
     
+    if otx_intel_list == None:
+        pass
+    else:
+        determine_specific_otx_intel(otx_results, otx_intel_list)
+
+    print("\n\t{:<25} {}".format("Related Pulses:",otx_results['general']['pulse_info']['count']))
+
     if otx_results['reputation']['reputation'] == None:
         print('\t{:<25} {}'.format('Reputation:','None'))
     else:
-        print('\t{:<25} {}'.format('Pulse Modifed:',otx_results['reputation']['reputation']))  
+        print('\t{:<25} {}'.format('Reputation:',otx_results['reputation']['reputation']))
 
     print('\t{:<25} {}'.format('Passive DNS:', str(otx_results['passive_dns']['count']) + ' Domains'))
     if otx_results['passive_dns']['count'] <= 5:
@@ -638,7 +718,7 @@ def print_ip_detections(vt_ip_response):
             continue
     
     if alert_categories['malicious'] >= 10:
-        print('\t{:<31} {}'.format(color.RED + 'Malicious:' + color.END,alert_categories['malicious'])) 
+        print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END,alert_categories['malicious'])) 
     elif alert_categories['malicious'] >= 5:
         print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END,alert_categories['malicious']))
     else:
