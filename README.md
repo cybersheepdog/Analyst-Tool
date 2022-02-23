@@ -47,6 +47,9 @@ x-apikey = API_KEY_GOES_HERE
 [ALIEN_VAULT_OTX]
 otx_api_key = API_KEY_GOES_HERE
 server = https://otx.alienvault.com/
+
+[OTX_INTEL]
+intel_list =
 ```
 - Install [Anaconda](https://www.anaconda.com/products/individual)
 - Open Anaconda prompt and type:
@@ -76,6 +79,30 @@ server = https://otx.alienvault.com/
 
 ![Sample IP Address Output](/graphics/ip.png)
 
+**Updated AlienVault OTX Output** Updated picture to follow
+```
+AlienVault OTX IP Report:
+	dorkingbeauty1 Intel:     Yes
+	Pulse Created:            2022-02-14T03:25:39.705000
+	Pulse Modifed:            2022-02-14T03:25:39.705000
+	Pulse:                    https://otx.alienvault.com/pulse/6209cbb3a50149391bd1040b
+
+
+	pr0viehh Intel:           No
+	Avertium Intel:           No
+
+	Related Pulses:           50
+	Reputation:               None
+	Passive DNS:              2 Domains
+	Hostname:                 171.25.193.20
+	  First Seen:             2018-09-23T22:00:00
+	  Last Seen:              2018-09-23T22:00:00
+	Hostname:                 tor-exit0-readme.dfri.se
+	  First Seen:             2017-04-23T21:00:36
+	  Last Seen:              2020-05-28T16:26:41
+	https://otx.alienvault.com/indicator/ip/171.25.193.20
+```
+
 ### Hash:
 
 ![Sample Hash Output](/graphics/hash.png)
@@ -86,7 +113,7 @@ server = https://otx.alienvault.com/
 
 ## Planned features & updates
 - [ ] IP Addresses:
-     - [ ] Ability to check OTX if IP is in a pulse for specific contributors
+     - [X] Ability to check OTX if IP is in a pulse for specific contributors
      - [ ] Bulk IP Lookup
 - [ ] Hashes:
      - [ ] Bulk hash lookup
