@@ -130,3 +130,5 @@ dmypy.json
 
 # My Ignores for Testing
 TestingNotebook.ipynb
+Testing/
+__pycache__/

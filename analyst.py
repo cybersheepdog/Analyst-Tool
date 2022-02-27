@@ -59,6 +59,7 @@ def analyst():
     otx = create_av_otx_headers_from_config()
     otx_intel_list = get_otx_intel_list_from_config()
     virus_total_headers = create_virus_total_headers_from_config()
+    vt_user = get_vt_user_from_config()
     clipboard_contents = get_clipboard_contents()
 
     while True:
@@ -85,7 +86,7 @@ def analyst():
                         pass
                     elif ipaddress.IPv4Address(clipboard_contents):
                         suspect_ip = clipboard_contents
-                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list)
+                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user)
                     else: 
                         continue
             except:
@@ -324,7 +325,7 @@ def get_clipboard_contents():
     clipboard_contents = paste().strip()
     return clipboard_contents        
         
-def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list):
+def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user):
     """ A function to call the various IP modules if they are enabled and display them in order.  
     
     This function requires the following 4 parameters:
@@ -348,7 +349,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         print(color.UNDERLINE + '\nVirusToal Detections:' + color.END)
         print('\tVirus Total not configured.')
     else:
-        get_vt_ip_results(suspect_ip, virus_total_headers)
+        get_vt_ip_results(suspect_ip, virus_total_headers, vt_user)
         
     print(color.UNDERLINE + '\nIP Information:' + color.END)
     
@@ -401,7 +402,7 @@ def get_otx_intel_list_from_config():
         return otx_intel_list
 
 
-def get_vt_ip_results(suspect_ip, virus_total_headers):
+def get_vt_ip_results(suspect_ip, virus_total_headers, vt_user):
     """A fuction to form the api query for an IP address to VirusTotal and pull back the results.  It then calls a 2nd function to process those results.
 
     This function requires the following 2 parameters:
@@ -428,8 +429,32 @@ def get_vt_ip_results(suspect_ip, virus_total_headers):
     vt_ip_response = json.loads(vt_ip_response)
     
     print(color.UNDERLINE + '\nVirusToal Detections:' + color.END) 
+
+    if vt_user == None:
+        pass
+    else:
+        vt_api_count(virus_total_headers, vt_user)
+
     print_ip_detections(vt_ip_response)
     print("\thttps://www.virustotal.com/gui/ip-address/"+ suspect_ip)         
+
+def get_vt_user_from_config():
+    config_object = ConfigParser()
+    try:
+        config_object.read("config.ini")
+    except:
+        print("Error with config.ini.")
+    else:
+        vt = config_object["VIRUS_TOTAL"]
+        if vt['user']:
+            vt_user = vt['user']
+            print('VirusTotal API usage alerts enabled for ' + vt_user)
+            return vt_user
+        else:
+            print("No VT User.")
+            print("Please add your VT username to the config.ini file if you would like to enable API Quota notifications")
+            vt_user = ''
+            return vt_user
         
 def ip_whois(suspect_ip):
     """  A function to query WhoIs for an IP address and print out information from the response.
@@ -756,7 +781,7 @@ def print_ip_detections(vt_ip_response):
     print('\t{:<25} {}'.format('Undetected:',alert_categories['unrated']))
     print('\t{:<25} {}'.format('Time Out:',alert_categories['time out']))
     
-def print_virus_total_hash_results(suspect_hash, virus_total_headers):
+def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
     """Queries VirusTotal via the API for a suspect hash and prints the results to the screen.  For each hash it will color code output for the malicious and suspicious categories. Red = 10 or more detections in that category.  Oragne = 5 to 9 detections in the (malicious, suspicious, phishing, malware, spam) categories.  
     
     This function requires the following 2 parameters:
@@ -805,6 +830,12 @@ def print_virus_total_hash_results(suspect_hash, virus_total_headers):
     vt_hash_url = vt_hash_url.replace("SUSPECT_HASH", suspect_hash)
     heading = "\n\n\nVirusTotal Hash Report for " + suspect_hash + ":"
     print(color.BOLD + heading + color.END)
+
+    if vt_user == None:
+        pass
+    else:
+        vt_api_count(virus_total_headers, vt_user)
+
     response = requests.request("GET", vt_hash_report, headers=virus_total_headers)
 
     vt_hash_response = json.loads(response.text)
@@ -954,7 +985,7 @@ def print_virus_total_hash_results(suspect_hash, virus_total_headers):
             print('\t{:<25} {}'.format('Times Submitted:',vt_hash_response['data']['attributes']['times_submitted']))
         print(vt_hash_url)
         
-def print_vt_domain_report(suspect_domain, virus_total_headers):
+def print_vt_domain_report(suspect_domain, virus_total_headers, vt_user):
     """ Queries VirusTotal via the API and prints the specified information to the screen.
     
     This funciton requires the following 2 parameters:
@@ -1001,6 +1032,11 @@ def print_vt_domain_report(suspect_domain, virus_total_headers):
         print('\tDomain not found in VirusTotal')  
     else:    
         print('\n\n\n' + color.BOLD + 'Domain Reputation for ' + suspect_domain + ':' + color.END)
+
+    if vt_user == None:
+        pass
+    else:
+        vt_api_count(virus_total_headers, vt_user)
    
     print(color.UNDERLINE + 'Last Analysis Stats:' + color.END)
     print_domain_detections(vt_domain_response)
@@ -1057,3 +1093,22 @@ def print_vt_domain_report(suspect_domain, virus_total_headers):
     else:
         print('\t{:<30} {}'.format('Not Before:',vt_domain_response['data']['attributes']['last_https_certificate']['validity']['not_before']))
     print("https://www.virustotal.com/gui/domain/"+ suspect_domain)
+
+def vt_api_count(virus_total_headers, vt_user):
+    vt_api_count_url = "https://www.virustotal.com/api/v3/users/VT_ID/overall_quotas"
+    vt_api_count_url = vt_api_count_url.replace("VT_ID", vt_user)
+    response = requests.request("GET", vt_api_count_url, headers=virus_total_headers)
+    api_response = response.text
+    api_usage = json.loads(api_response)
+    vt_count = api_usage['data']['api_requests_daily']['user']['used']
+    
+    if vt_count == 500:
+        print(color.BOLD + "You have reached 100% of your 500 daily VT API Queries!" + color.END)
+    elif vt_count == 475:
+        print(color.BOLD + "You have reached 95% of your 500 daily VT API Queries" + color.END)
+    elif vt_count == 375:
+        print(color.BOLD + "You have reached 75% of your 500 daily VT API Queries!" + color.END)
+    elif vt_count == 250:
+        print(color.BOLD + "You have reached 50% of your 500 daily VT API Queries!" + color.END)
+    else:
+        pass
