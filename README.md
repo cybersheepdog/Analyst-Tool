@@ -133,6 +133,8 @@ AlienVault OTX IP Report:
 - [ ] Suricata sig lookup
 - [ ] Logging of daily activity/lookups
 - [ ] Count of lookups with warning once a certain threshold is reached of daily allowances for that API
+     - [ ] Abuse IP DB
+     - [X] ~~VirusTotal~~
 - [ ] Display info about WEVID's and Option codes.  Not just a link
 - [ ] Display info about ports and not just a link.
 - [ ] Color coding for expired certificates
