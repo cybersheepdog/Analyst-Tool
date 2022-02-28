@@ -128,11 +128,22 @@ def check_abuse_ip_db(suspect_ip, abuse_ip_db_headers):
         'maxAgeInDays': days
     }
     
-    response = requests.request(method='GET', url=abuse_ip_db_url, headers=abuse_ip_db_headers , params=querystring)
+    abuse_ip_response = requests.request(method='GET', url=abuse_ip_db_url, headers=abuse_ip_db_headers , params=querystring)
 
-    abuse_ip_report = json.loads(response.text)
+    abuse_ip_report = json.loads(abuse_ip_response.text)
     
     print(color.UNDERLINE + '\nAbuse IP DB:' + color.END)
+
+    abuse_api_count = abuse_ip_response.headers['X-RateLimit-Remaining']
+    if abuse_api_count == 0:
+        print(color.BOLD + "You have reached 100% of your 1000 daily Abuse IP DB API Queries!" + color.END)
+    elif abuse_api_count == 50:
+        print(color.BOLD + "You have reached 95% of your 1000 daily Abuse IP DB API Queries" + color.END)
+    elif abuse_api_count == 250:
+        print(color.BOLD + "You have reached 75% of your 1000 daily Abuse IP DB API Queries!" + color.END)
+    else:
+        pass
+
     if abuse_ip_report['data']['abuseConfidenceScore'] >= 70:
         print('\t{:<34} {}%'.format(color.RED + 'Abuse Confidence Score:' + color.END,abuse_ip_report['data']['abuseConfidenceScore'] )) 
     elif abuse_ip_report['data']['abuseConfidenceScore'] >= 40:
