@@ -75,12 +75,12 @@ def analyst():
                     clipboard_contents = check     
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
-                        print_virus_total_hash_results(suspect_hash, virus_total_headers)
+                        print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
                     elif validators.domain(clipboard_contents) == True:
                         suspect_domain = clipboard_contents
-                        print_vt_domain_report(suspect_domain, virus_total_headers)
+                        print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
