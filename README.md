@@ -43,13 +43,14 @@ key = API_KEY_GOES_HERE
 [VIRUS_TOTAL]
 accept = application/json
 x-apikey = API_KEY_GOES_HERE
+user = VIRUS_TOTAL_PROFILE_USER_NAME_GOES_HERE
 
 [ALIEN_VAULT_OTX]
 otx_api_key = API_KEY_GOES_HERE
 server = https://otx.alienvault.com/
 
 [OTX_INTEL]
-intel_list =
+intel_list = COMA,SEPERATED,LIST,OF,OTX,PULSE,AUTHORS,GOES,HERE
 ```
 - Install [Anaconda](https://www.anaconda.com/products/individual)
 - Open Anaconda prompt and type:
