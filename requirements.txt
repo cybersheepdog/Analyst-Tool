@@ -1,5 +1,6 @@
 attackcti
 ipwhois
+IPython
 OTXv2
 pyperclip
 validators
