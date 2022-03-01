@@ -22,6 +22,7 @@ Once configured simply copy one of the above items and program will do the rest 
 In addition I want to make this tool to be beneficial to both new and seasoned analysts alike where it automatically presents useful information by simply copying something to the clipboard. The For more see the planned features & updates section.
 
 ### Requirements
+- attackcti
 - ipwhois
 - OTXv2
 - pyperclip
@@ -129,6 +130,9 @@ AlienVault OTX IP Report:
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
 - [ ] [CVE Detail lookup](https://nvd.nist.gov/vuln/detail/CVE-2022-23307)
 - [ ] [MITRE ATT&CK Lookup](https://attack.mitre.org/)
+     - [X] ~~Tactic  Prints tactic details as well as clickalbe link to Mitre~~
+     - [ ] Technique: Just a clickable link to the Mitre Technique page at the moment
+     - [ ] Sub Technique: Just a clickable link to the Mitre Sub Technique page at the moment
 - [ ] Sysmon ID Lookup & explanation
 - [ ] Snort Sig lookup
 - [ ] Suricata sig lookup
