@@ -6,6 +6,7 @@
 import datetime
 import ipaddress
 import json
+import logging
 import re
 import requests
 import time
@@ -15,9 +16,11 @@ from OTXv2 import OTXv2
 from OTXv2 import IndicatorTypes
 from ipwhois import IPWhois
 from configparser import ConfigParser
+from attackcti import attack_client
 
 # Regex to be used in the main loop of the Jupyter Notebook
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
+mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
 port_wid_validation_regex = '^[0-9]{1,5}$'
 
 # Other Regex
@@ -50,7 +53,8 @@ def analyst():
     
     Hash (md5, sha1 or sha256)
     Port # or Windows EventID (requires user interaction to choose between the 2 or neither)
-    Domain (lots of false positives here.  will trigger on things like first.last
+    Domain (lots of false positives here.  will trigger on things like first.last)
+    Mitre Tactics, Techniques & SubTechniques
     Private IP address
     Public IP address
     None of the above    
@@ -60,6 +64,17 @@ def analyst():
     otx_intel_list = get_otx_intel_list_from_config()
     virus_total_headers = create_virus_total_headers_from_config()
     vt_user = get_vt_user_from_config()
+    lift = attack_client()
+    logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
+    print("Initializing the Mitre ATT&CK Module.  Please be patient.")
+    try:
+        enterprise = lift.get_enterprise()
+    except:
+        print("Failed to initalize the Mitre ATT&CK module!")
+    else:
+        print("Mitre ATT&CK Initalized.")
+
+
     clipboard_contents = get_clipboard_contents()
 
     while True:
@@ -81,6 +96,9 @@ def analyst():
                     elif validators.domain(clipboard_contents) == True:
                         suspect_domain = clipboard_contents
                         print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
+                    elif re.match(mitre_regex, clipboard_contents):
+                        mitre = clipboard_contents.strip()
+                        is_mitre_tactic_technique_sub_tecnique(mitre)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
@@ -551,6 +569,31 @@ def is_ip_address(clipboard_contents):
     except:
         pass    
 
+def is_mitre_tactic_technique_sub_tecnique(mitre, enterprise):
+    mitre_tactic_regex = '^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$'
+    mitre_technique_regex = '^T[0-9]{4}$'
+    mitre_sub_technique_regex = '^T[0-9]{4}\.[0-9]{3}$'
+    mitre_tactic_url = 'https://attack.mitre.org/tactics/TACTIC/'
+    mitre_tehcnique_url = 'https://attack.mitre.org/techniques/TECHNIQUE/'
+    mitre_sub_technique_url = 'https://attack.mitre.org/techniques/TECHNIQUE/SUB_TECHNIQUE/'
+
+    if re.match(mitre_tactic_regex, mitre):
+        mitre_tactic = mitre
+        print_mitre_tactic(mitre_tactic, enterprise)
+    elif re.match(mitre_technique_regex, mitre):
+        print('\n\n\nTechnique')
+        mitre_tehcnique_url = mitre_tehcnique_url.replace("TECHNIQUE", mitre)
+        print(mitre_tehcnique_url)
+    elif re.match(mitre_sub_technique_regex, mitre):
+        print('\n\n\nSub-Technique')
+        mitre = mitre.split(".")
+        mitre_sub_technique_url = mitre_sub_technique_url.replace("SUB_TECHNIQUE", mitre[1])
+        mitre_sub_technique_url = mitre_sub_technique_url.replace("TECHNIQUE", mitre[0])
+        print(mitre_sub_technique_url)
+    else:
+        pass
+
+
 def is_port_or_weivd(pwid):
     """ Takes contents of clipboard that matched the port_wid_validation_regex and prompts the use to input 1 for a port and 2 for a WID.  It then calls either the open_port_page or the open_wid_page function.
     
@@ -792,6 +835,24 @@ def print_ip_detections(vt_ip_response):
     print('\t{:<25} {}'.format('Undetected:',alert_categories['unrated']))
     print('\t{:<25} {}'.format('Time Out:',alert_categories['time out']))
     
+def print_mitre_tactic(mitre_tactic, enterprise):
+    """Searches through Mitre ATT&CK for a tactic and pulls the inforation out and prints to the screen.
+    
+    Requried Variables:
+         mitre_tactic - derived from the is_mitre_tactic_technique_sub_tecnique function
+         enterprise = ditionary of mitre att&ck objects derived from mitre initializaiton in the analyst function
+    
+    """
+
+    for tactics in enterprise['tactics']:
+        for tactic in tactics['external_references']:
+            if tactic['external_id'] == mitre_tactic:
+                print("\n\n\nMitre Tactic: " + mitre_tactic)
+                print(color.BOLD + tactics['name'] + ":\t" + color.END + '\n')
+                print(tactics['description'])
+                print("\n" + tactic['url'])
+
+
 def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
     """Queries VirusTotal via the API for a suspect hash and prints the results to the screen.  For each hash it will color code output for the malicious and suspicious categories. Red = 10 or more detections in that category.  Oragne = 5 to 9 detections in the (malicious, suspicious, phishing, malware, spam) categories.  
     
