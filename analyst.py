@@ -98,7 +98,7 @@ def analyst():
                         print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
                     elif re.match(mitre_regex, clipboard_contents):
                         mitre = clipboard_contents.strip()
-                        is_mitre_tactic_technique_sub_tecnique(mitre)
+                        is_mitre_tactic_technique_sub_tecnique(mitre, enterprise)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
