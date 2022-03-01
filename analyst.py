@@ -911,8 +911,6 @@ def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_techn
                     print(color.BOLD + "Detection:" + color.END)
                     #print(techniques['x_mitre_detection'])
                     display(Markdown(techniques['x_mitre_detection']))
-                    print("\n\n\n")
-                    print(techniques)
 
 def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
     """Queries VirusTotal via the API for a suspect hash and prints the results to the screen.  For each hash it will color code output for the malicious and suspicious categories. Red = 10 or more detections in that category.  Oragne = 5 to 9 detections in the (malicious, suspicious, phishing, malware, spam) categories.  
