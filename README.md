@@ -122,6 +122,7 @@ AlienVault OTX IP Report:
      - [ ] Flag malicious imports
      - [ ] Brief description of what malicious import does
      - [ ] Additional context & lookups
+     - [X] ~~OTX Support~~
 - [ ]  Domains:
      - [ ] Bulk Domain lookup
      - [ ] Better domain validation
@@ -130,9 +131,9 @@ AlienVault OTX IP Report:
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
 - [ ] [CVE Detail lookup](https://nvd.nist.gov/vuln/detail/CVE-2022-23307)
 - [ ] [MITRE ATT&CK Lookup](https://attack.mitre.org/)
-     - [X] ~~Tactic  Prints tactic details as well as clickalbe link to Mitre~~
-     - [ ] Technique: Just a clickable link to the Mitre Technique page at the moment
-     - [ ] Sub Technique: Just a clickable link to the Mitre Sub Technique page at the moment
+     - [X] ~~Tactic  Prints tactic details as well as a clickalbe link to Mitre~~
+     - [X] ~~Technique: Prints technique as well as a clickable link to Mitre.~~
+     - [X] ~~Sub Technique: Prints sub-technique as well as a clickable link to Mitre.~~
 - [ ] Sysmon ID Lookup & explanation
 - [ ] Snort Sig lookup
 - [ ] Suricata sig lookup
