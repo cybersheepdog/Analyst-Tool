@@ -103,6 +103,7 @@ def analyst(terminal=0):
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
                         print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user)
+                        print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
                     elif validators.domain(clipboard_contents) == True:
@@ -651,6 +652,66 @@ def open_wid_page(wevid):
     wevid_url = weivd_url.replace("W_EVID", wevid)
     print("\n" + wevid_url)
 
+def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list):
+    """Takes the OTX Headers and suspect hash, pulls back inforamtion from OTX and prints it to the screen.
+    
+    This function requires the following 4 parameters:
+        IP address:  Obtained automatically from the main script in the Juptyer Notebook.
+             
+        AlienVault OTX Headers: Obtained automatically from the config.ini file and  the create_av_otx_headers_from_config function.
+    
+    Sample Output:
+
+    """
+
+    md5_regex = '^[a-fA-F0-9]{32}$'
+    sha1_regex = '^[a-fA-F0-9]{40}$'
+    sha256_regex = '^[a-fA-F0-9]{64}$'
+
+    if re.match(md5_regex, suspect_hash):
+        otx_results = otx.get_indicator_details_full(IndicatorTypes.FILE_HASH_MD5, suspect_hash)
+    elif re.match(sha1_regex, suspect_hash):
+        otx_results = otx.get_indicator_details_full(IndicatorTypes.FILE_HASH_SHA1, suspect_hash)
+    elif re.match(sha256_regex, suspect_hash):
+        otx_results = otx.get_indicator_details_full(IndicatorTypes.FILE_HASH_SHA256, suspect_hash)
+    else:
+        print("Not an MD5, Sha1 or Sha256 hash.")
+
+    print(color.BOLD + "\n\nAlienVault OTX Hash Report:"+ color.END)
+
+    # Currently not working as the hash  report does not provide the author name.
+    #if otx_intel_list == None:
+        #pass
+    #else:
+        #determine_specific_otx_intel(otx_results, otx_intel_list)
+
+    print("\t{:<25} {}".format("Related Pulses:",otx_results['general']['pulse_info']['count']))
+
+    print("\n\t" + color.UNDERLINE + "Contacted Domains:" + color.END)
+    try:
+        otx_results['analysis']['analysis']['plugins']['cuckoo']['result']['network']['domains']
+    except:
+        print("\tNo known concated domains or IPs.")
+    else:
+        for domain in otx_results['analysis']['analysis']['plugins']['cuckoo']['result']['network']['domains']:
+            print("\t{:>10}".format("Details:"))
+            if domain['domain'] == None:
+                print("\t\t{:>16} {}".format("Domain:","None"))
+            else:
+                print("\t\t{:<16} {}".format("Domain:",domain['domain']))
+
+            if domain['ip'] == None:
+                print("\t\t{:<16} {}".format("IP:","None"))
+            else:
+                print("\t\t{:<16} {}".format("IP:",domain['ip']))
+
+            if domain['whitelisted'] == False:
+                print("\t\t{:<16} {:}".format("Whitelisted:","No"))
+            else:
+                print("\t\t{:<16} {}".format("Whitelisted:",domain['whitelisted']))
+
+    print("https://otx.alienvault.com/indicator/file/" + suspect_hash)
+
 def print_alient_vault_ip_results(otx, suspect_ip, otx_intel_list):
     """Takes the OTX Headers and suspect IP, pulls back inforamtion from OTX and prints it to the screen.
     
@@ -750,7 +811,7 @@ def print_domain_detections(vt_domain_response):
             continue
     
     if alert_categories['malicious'] >= 10:
-        print('\t{:<31} {}'.format(color.RED + 'Malicious:' + color.END,alert_categories['malicious'])) 
+        print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END,alert_categories['malicious'])) 
     elif alert_categories['malicious'] >= 5:
         print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END,alert_categories['malicious']))
     else:
