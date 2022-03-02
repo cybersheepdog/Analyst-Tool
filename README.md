@@ -24,6 +24,7 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
 ### Requirements
 - attackcti
 - ipwhois
+- IPython
 - OTXv2
 - pyperclip
 - validators
