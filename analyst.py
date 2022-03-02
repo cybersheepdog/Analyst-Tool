@@ -52,7 +52,7 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
-def analyst():
+def analyst(terminal=0):
     """ The main function of the program.  Runs and infinite loop and checks the contents of the clipboard every 5 seconds to see if it has changed.  If so it then runs a series of checks to determine if it is one of the following:
     
     Hash (md5, sha1 or sha256)
@@ -61,7 +61,12 @@ def analyst():
     Mitre Tactics, Techniques & SubTechniques
     Private IP address
     Public IP address
-    None of the above    
+    None of the above
+
+    Optional Parametr:
+        terminal:
+                Default 0 - allows markdown to be displayed in jupyter notebook output for Mitre ATT&CK funcitons
+                Changing to 1 (or anything else) disables markdown and allows to print to terminal screen)    
     """
     abuse_ip_db_headers = create_abuse_ip_db_headers_from_config()
     otx = create_av_otx_headers_from_config()
@@ -105,7 +110,7 @@ def analyst():
                         print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
                     elif re.match(mitre_regex, clipboard_contents):
                         mitre = clipboard_contents.strip()
-                        is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques)
+                        is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques, terminal)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
@@ -128,6 +133,7 @@ def check_abuse_ip_db(suspect_ip, abuse_ip_db_headers):
         IP address:  Obtained automatically from the main script in the Juptyer Notebook.
         
         AbuseIPDB Headers: Obtained automatically from the config.ini file and  the create_abuse_ip_db_headers_from_config function. 
+            ifniques['x_mitre_detection'])terminal = 0:
     
     Sample Output:
         Abuse IP DB:
@@ -411,7 +417,6 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
 def get_mitre_technique(mitre_technique, mitre_techniques):
     for techniques in mitre_techniques:
         for technique in techniques['external_references']:
-        #print(technique['external_id'])
             try:
                 technique['external_id'] == mitre_technique
             except:
@@ -587,25 +592,22 @@ def is_ip_address(clipboard_contents):
     except:
         pass    
 
-def is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques):
+def is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques, terminal):
     mitre_tactic_regex = '^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$'
     mitre_technique_regex = '^T[0-9]{4}$'
     mitre_sub_technique_regex = '^T[0-9]{4}\.[0-9]{3}$'
-    mitre_tactic_url = 'https://attack.mitre.org/tactics/TACTIC/'
-    mitre_tehcnique_url = 'https://attack.mitre.org/techniques/TECHNIQUE/'
-    mitre_sub_technique_url = 'https://attack.mitre.org/techniques/TECHNIQUE/SUB_TECHNIQUE/'
 
     if re.match(mitre_tactic_regex, mitre):
         mitre_tactic = mitre
-        print_mitre_tactic(mitre_tactic, enterprise)
+        print_mitre_tactic(mitre_tactic, enterprise, terminal)
     elif re.match(mitre_technique_regex, mitre):
         mitre_technique = mitre
-        print_mitre_technique(mitre_technique, mitre_techniques)
+        print_mitre_technique(mitre_technique, mitre_techniques, terminal)
     elif re.match(mitre_sub_technique_regex, mitre):
         mitre_sub_technique = mitre
         mitre = mitre.split(".")
         mitre_technique = mitre[0]
-        print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique)
+        print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique, terminal)
     else:
         pass
 
@@ -851,12 +853,16 @@ def print_ip_detections(vt_ip_response):
     print('\t{:<25} {}'.format('Undetected:',alert_categories['unrated']))
     print('\t{:<25} {}'.format('Time Out:',alert_categories['time out']))
     
-def print_mitre_tactic(mitre_tactic, enterprise):
+def print_mitre_tactic(mitre_tactic, enterprise, terminal):
     """Searches through Mitre ATT&CK for a tactic and pulls the inforation out and prints to the screen.
     
-    Requried Variables:
+    Requried Parameters:
          mitre_tactic - derived from the is_mitre_tactic_technique_sub_tecnique function
-         enterprise = ditionary of mitre att&ck objects derived from mitre initializaiton in the analyst function
+         enterprise - ditionary of mitre att&ck objects derived from mitre initializaiton in the analyst function
+
+    Optional Parameter:
+         terminal - leave set to 0 to display markdown in jupyter notebook
+                    set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
     
     """
 
@@ -865,10 +871,25 @@ def print_mitre_tactic(mitre_tactic, enterprise):
             if tactic['external_id'] == mitre_tactic:
                 print("\n\n\nMitre Tactic: " + mitre_tactic)
                 print(color.BOLD + tactics['name'] + ":\t" + color.END + '\n')
-                print(tactics['description'])
+                if terminal == 0:
+                    display(Markdown(tactics['description']))
+                else:
+                    print(tactics['description'])
                 print("\n" + tactic['url'])
 
-def print_mitre_technique(mitre_technique, mitre_techniques):
+def print_mitre_technique(mitre_technique, mitre_techniques, terminal):
+    """Searches through Mitre ATT&CK for a Technique and pulls the inforation out and prints to the screen.
+    
+    Requried Parameters:
+         mitre_techniqe - derived from the is_mitre_tactic_technique_sub_tecnique function
+         mitre_techniques - list of mitre att&ck techniques derived from mitre initializaiton in the analyst function
+
+    Optional Parameter:
+         terminal - leave set to 0 to display markdown in jupyter notebook
+                    set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
+    
+    """
+
     for techniques in mitre_techniques:
         for technique in techniques['external_references']:
         #print(technique['external_id'])
@@ -882,14 +903,30 @@ def print_mitre_technique(mitre_technique, mitre_techniques):
                     print("Mitre Technique:\t" + technique['external_id'])
                     print(technique['url'] + "\n")
                     print(color.BOLD + techniques['name'] + color.END)
-                    #print(techniques['description'])
-                    display(Markdown(techniques['description']))
+                    if terminal == 0:
+                        display(Markdown(techniques['description']))
+                    else:
+                        print(techniques['description'])
                     print("\n")
                     print(color.BOLD + "Detection:" + color.END)
-                    #print(techniques['x_mitre_detection'])
-                    display(Markdown(techniques['x_mitre_detection']))
+                    if terminal == 0:
+                        display(Markdown(techniques['x_mitre_detection']))
+                    else:
+                        print(techniques['x_mitre_detection'])
 
-def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique):
+def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique, terminal):
+    """Searches through Mitre ATT&CK for a Sub-Technique and pulls the inforation out and prints to the screen.
+    
+    Requried Parameters:
+         mitre_sub_technique - derived from the is_mitre_tactic_technique_sub_tecnique function
+         mitre_techniques - list of mitre att&ck techniques derived from mitre initializaiton in the analyst function
+         mitre_techniqe - derived from the is_mitre_tactic_technique_sub_tecnique function
+
+    Optional Parameter:
+         terminal - leave set to 0 to display markdown in jupyter notebook
+                    set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
+    
+    """
     for techniques in mitre_techniques:
         for technique in techniques['external_references']:
         #print(technique['external_id'])
@@ -900,17 +937,20 @@ def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_techn
             else:
                 if technique['external_id'] == mitre_sub_technique:
                     print("\n\n\n{:<23} {}".format("Mitre Tactic:",techniques['kill_chain_phases'][0]['phase_name'].title()))
-                    #print("Mitre Tecnique:")
                     get_mitre_technique(mitre_technique, mitre_techniques)
                     print("Mitre Sub-Technique:\t" + technique['external_id'])
                     print(technique['url'] + "\n")
                     print(color.BOLD + techniques['name'] + color.END)
-                    #print(techniques['description'])
-                    display(Markdown(techniques['description']))
+                    if terminal == 0:
+                        display(Markdown(techniques['description']))
+                    else:
+                        print(techniques['description'])
                     print("\n")
                     print(color.BOLD + "Detection:" + color.END)
-                    #print(techniques['x_mitre_detection'])
-                    display(Markdown(techniques['x_mitre_detection']))
+                    if terminal == 0:
+                        display(Markdown(techniques['x_mitre_detection']))
+                    else:
+                        print(techniques['x_mitre_detection'])
 
 def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
     """Queries VirusTotal via the API for a suspect hash and prints the results to the screen.  For each hash it will color code output for the malicious and suspicious categories. Red = 10 or more detections in that category.  Oragne = 5 to 9 detections in the (malicious, suspicious, phishing, malware, spam) categories.  

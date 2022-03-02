@@ -1,2 +1,2 @@
 from analyst import *
-analyst()
+analyst(terminal=1)
