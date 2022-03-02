@@ -1277,16 +1277,21 @@ def print_vt_domain_report(suspect_domain, virus_total_headers, vt_user):
     try:
         vt_domain_response['data']['attributes']['creation_date']
     except:
-        if re.search(creation_date_regex, vt_domain_response['data']['attributes']['whois']) != None:
-            m =  m = re.search(creation_date_regex, vt_domain_response['data']['attributes']['whois'])
-            cd = m.group(2)
-            print('\t{:<30} {}'.format('Creation Date:',cd))
-        else:
+        try:
+            vt_domain_response['data']['attributes']['whois']
+        except:
             print('\t{:<30} {}'.format('Creation Date:','No Date in VT'))
+        else:
+            if re.search(creation_date_regex, vt_domain_response['data']['attributes']['whois']) != None:
+                m =  m = re.search(creation_date_regex, vt_domain_response['data']['attributes']['whois'])
+                cd = m.group(2)
+                print('\t{:<30} {}'.format('Creation Date:',cd))
+            else:
+                print('\t{:<30} {}'.format('Creation Date:','No Date in VT'))
     else:
         datetime.datetime.fromtimestamp(vt_domain_response['data']['attributes']['creation_date'])
-        print('\t{:<30} {}'.format('Creation Date:',datetime.datetime.fromtimestamp(vt_domain_response['data']['attributes']['creation_date'])))
-        
+        print('\t{:<30} {}'.format('Creation Date:',datetime.datetime.fromtimestamp(vt_domain_response['data']['attributes']['creation_date'])))       
+ 
     try:
         vt_domain_response['data']['attributes']['last_update_date']
     except:
