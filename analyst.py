@@ -320,7 +320,7 @@ def determine_specific_otx_intel(otx_results, otx_intel_list):
     """Takes a list of OTX users and checks the OTX query results to see if the suspect IP appears in any of their pulses.
     
     Required Parameters:
-        OTX Results:  Derived from the "print_alient_vault_ip_results" function.
+        OTX Results:  Derived from the "print_alien_vault_ip_results" function.
         
         OTX Intel List: Derived from the config.ini file and the function "get_otx_intel_list_from_config".  should be a comma seperated list like
                 author1,author2,etc..
@@ -413,7 +413,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         print(color.UNDERLINE + '\nAlienVault OTX:' + color.END)
         print('\tAlienVault not configured.')
     else:  
-        print_alient_vault_ip_results(otx, suspect_ip, otx_intel_list)
+        print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list)
         
 def get_mitre_technique(mitre_technique, mitre_techniques):
     for techniques in mitre_techniques:
@@ -712,7 +712,7 @@ def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list):
 
     print("https://otx.alienvault.com/indicator/file/" + suspect_hash)
 
-def print_alient_vault_ip_results(otx, suspect_ip, otx_intel_list):
+def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list):
     """Takes the OTX Headers and suspect IP, pulls back inforamtion from OTX and prints it to the screen.
     
     This function requires the following 4 parameters:
