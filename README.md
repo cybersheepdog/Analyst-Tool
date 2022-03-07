@@ -11,9 +11,10 @@ python analyst_tool.py
 
 
 A python script in Jupyter Notebook to automate as much as possible an analyst's investigation and intelligence gathering for:
-- IP addresses
-- Hashes
 - Domains
+- Hashes
+- IP addresses
+- Mitre ATT&CK Tactics, Techniques & Sub-Techniques
 - Ports
 - Windows Event IDs.  
 
@@ -24,6 +25,7 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
 ### Requirements
 - attackcti
 - ipwhois
+- IPython
 - OTXv2
 - pyperclip
 - validators
