@@ -447,10 +447,10 @@ def get_otx_intel_list_from_config():
         otx_intel_list = intel_list['intel_list'].split(",")
         for line in otx_intel_list:
             line = line.strip()
-        print('OTX Intel providers configured.')
+        print('OTX Intel Providers configured.')
         return otx_intel_list
     else:
-        print('OTX Intel Proiders not configured.')
+        print('OTX Intel Providers not configured.')
         otx_intel_list = ''
         return otx_intel_list
 
