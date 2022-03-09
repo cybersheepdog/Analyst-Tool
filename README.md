@@ -118,17 +118,28 @@ AlienVault OTX IP Report:
 ## Planned features & updates
 - [ ] IP Addresses:
      - [X] ~~Ability to check OTX if IP is in a pulse for specific contributors~~
+     - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~     	
      - [ ] Bulk IP Lookup
 - [ ] Hashes:
+     - [X] ~~Ability to check OTX if Hash is in a pulse for specific contributors~~
+     - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~   
      - [ ] Bulk hash lookup
      - [ ] Flag malicious imports
      - [ ] Brief description of what malicious import does
      - [ ] Additional context & lookups
      - [X] ~~OTX Support~~
 - [ ]  Domains:
+     - [ ] Ability to check OTX if Hash is in a pulse for specific contributors
+     - [ ] Pulls out Mitre ATT&CK tags from the abbove pulses
      - [ ] Bulk Domain lookup
      - [ ] Better domain validation
      - [ ] Additional context & lookups
+- [ ] URLs:
+     - [ ] VirusTotal Support
+     - [ ] AlienVault OTX Suppport
+     - [ ] Ability to check OTX if Hash is in a pulse for specific contributors
+     - [ ] Pulls out Mitre ATT&CK tags from the abbove pulses
+     - [ ] Additional context & lookuups
 - [ ] [Common Windows Security Identifier Decoding](https://docs.microsoft.com/en-us/windows/security/identity-protection/access-control/security-identifiers)
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
 - [ ] [CVE Detail lookup](https://nvd.nist.gov/vuln/detail/CVE-2022-23307)
