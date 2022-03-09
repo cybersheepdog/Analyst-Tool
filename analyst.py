@@ -20,6 +20,7 @@ from attackcti import attack_client
 from IPython.display import display, Markdown
 
 # Regex to be used in the main loop of the Jupyter Notebook
+epoch_regex = '^[0-9]{10}(\.[0-9]{0,6})?$'
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
 mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
 port_wid_validation_regex = '^[0-9]{1,5}$'
@@ -112,6 +113,8 @@ def analyst(terminal=0):
                     elif re.match(mitre_regex, clipboard_contents):
                         mitre = clipboard_contents.strip()
                         is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques, terminal)
+                    elif re.match(epoch_regex, clipboard_contents):
+                        print_converted_epoch_timestamp(clipboard_contents)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
@@ -791,6 +794,18 @@ def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list, enterprise, mi
             print("\t  {:<23} {}".format('Last Seen:',host['last']))
     print("\thttps://otx.alienvault.com/indicator/ip/" + suspect_ip)
     
+
+def print_converted_epoch_timestamp(clipboard_contents):
+    clipboard_contents = float(clipboard_contents)
+    try:
+        datetime.datetime.fromtimestamp(clipboard_contents)
+    except ValueError as e:
+        print(e)
+    else:
+        print("\n\n\n")
+        print(datetime.datetime.fromtimestamp(clipboard_contents))
+
+
 def print_country(country_code, countries):
     """ Converts a 2 character country code to the full country name.
     
