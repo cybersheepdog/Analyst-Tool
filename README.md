@@ -116,7 +116,8 @@ AlienVault OTX IP Report:
 ![Sample Domain Output](/graphics/domain.png)
 
 ## Planned features & updates
-- [ ] IP Addresses:
+- [X] ~~Automatic epoch timestamp conversion~~
+- [ ] [ ] IP Addresses:
      - [X] ~~Ability to check OTX if IP is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~     	
      - [ ] Bulk IP Lookup
