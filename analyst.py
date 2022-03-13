@@ -21,6 +21,7 @@ from IPython.display import display, Markdown
 
 # Regex to be used in the main loop of the Jupyter Notebook
 epoch_regex = '^[0-9]{10}(\.[0-9]{0,6})?$'
+otx_pulse_regex = '^[0-9a-fA-F]{24}$'
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
 mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
 port_wid_validation_regex = '^[0-9]{1,5}$'
@@ -110,11 +111,15 @@ def analyst(terminal=0):
                     elif validators.domain(clipboard_contents) == True:
                         suspect_domain = clipboard_contents
                         print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
+                        print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list, enterprise, mitre_techniques)
                     elif re.match(mitre_regex, clipboard_contents):
                         mitre = clipboard_contents.strip()
                         is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques, terminal)
                     elif re.match(epoch_regex, clipboard_contents):
                         print_converted_epoch_timestamp(clipboard_contents)
+                    elif re.match(otx_pulse_regex, clipboard_contents):
+                        suspect_pulse = clipboard_contents
+                        print_otx_pulse_info(suspect_pulse, otx)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
@@ -342,6 +347,7 @@ def determine_specific_otx_intel(otx_results, otx_intel_list, enterprise, mitre_
                 print('\t{:<25} {}'.format('Pulse Created:',pulse['created']))
                 print('\t{:<25} {}'.format('Pulse Modifed:',pulse['modified']))
                 print('\t{:<25} {}'.format('Pulse:',intel_pulse))
+                print('\t{:<25} {}'.format('TLP:',pulse['TLP']))
                 print('\tMitre ATT&CK:')
                 get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)          
                 print('\n')
@@ -693,6 +699,44 @@ def open_wid_page(wevid):
     wevid_url = weivd_url.replace("W_EVID", wevid)
     print("\n" + wevid_url)
 
+
+def print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list, enterprise, mitre_techniques):
+    intel_pulse = ''
+    intel_pulse_created = ''
+    intel_pulse_updated = ''
+    pulse_list = []
+    author_list = []
+
+    otx_domain_results = otx.get_indicator_details_full(IndicatorTypes.DOMAIN, suspect_domain)
+    print("\nAlienVault OTX Domain Report for: " + suspect_domain)
+    for pulse in otx_domain_results['general']['pulse_info']['pulses']:
+        if pulse['author']['username'] in otx_intel_list:
+                intel_pulse = 'https://otx.alienvault.com/pulse/' + str(pulse['id'])
+                print('\t{:<34} {}'.format(color.GREEN + pulse['author']['username'] + ' Intel:' + color.END,'Yes'))
+                print('\t{:<25} {}'.format('Pulse Created:',pulse['created']))
+                print("\t{:<25} {}".format("Pulse Name:",pulse['name']))
+                print('\t{:<25} {}'.format('Pulse:',intel_pulse))
+                print('\t{:<25} {}'.format('TLP:',pulse['TLP']))
+                if pulse['tags']:
+                    if len(pulse['tags']) <= 5:
+                        print('\tTags:')
+                        for tag in pulse['tags']:
+                            print("\t   " + tag)
+                    else:
+                        pass
+                print('\n\tMitre ATT&CK:')
+                get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)
+                print('\n')
+                author_list.append(pulse['author']['username'])
+
+    for author in otx_intel_list:
+        if author in author_list:
+            pass
+        else:
+            print('\t{:<25} {}'.format(author +  ' Intel:','No'))
+        
+    print("\t{:<25} {}".format("Related Pulses:",otx_domain_results['general']['pulse_info']['count']))
+    print("https://otx.alienvault.com/indicator/domain/" + suspect_domain)
 
 def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise, mitre_techniques):
     """Takes the OTX Headers and suspect hash, pulls back inforamtion from OTX and prints it to the screen.
@@ -1081,9 +1125,9 @@ def print_otx_mitre_tactic(mitre_tactic, enterprise):
     for tactics in enterprise['tactics']:
         for tactic in tactics['external_references']:
             if tactic['external_id'] == mitre_tactic:
-                print("\n\n\nMitre Tactic: " + mitre_tactic)
-                print(color.BOLD + tactics['name'] + ":\t" + color.END + '\n')
-                print("\n" + tactic['url'])
+                print("\t   {:<22} {}".format("Mitre Tactic: ",mitre_tactic))
+                print("\t   " + tactics['name'] + ":")
+                print("\t   " + tactic['url'] + "\n")
 
 
 def print_otx_mitre_technique(mitre_technique, mitre_techniques):
@@ -1134,11 +1178,48 @@ def print_otx_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_t
                 pass
             else:
                 if technique['external_id'] == mitre_sub_technique:
-                    print("\n\n\n{:<23} {}".format("Mitre Tactic:",techniques['kill_chain_phases'][0]['phase_name'].title()))
-                    get_mitre_technique(mitre_technique, mitre_techniques)
-                    print("Mitre Sub-Technique:\t" + technique['external_id'])
-                    print(technique['url'] + "\n")
-                    print(color.BOLD + techniques['name'] + color.END)
+                    print("\t   {:<23} {}".format("Mitre Tactic:",techniques['kill_chain_phases'][0]['phase_name'].title()))
+                    print("\t   {:<23} {}".format("Mitre Technique:",techniques['name']))
+                    print("\t   {:<23} {}".format("Mitre Sub-Technique:",technique['external_id']))
+                    print("\t   " + techniques['name'])
+                    print("\t   " + technique['url'] + "\n")
+
+def print_otx_pulse_info(suspect_pulse, otx):
+    otx_pulse_results = otx.get_pulse_details(suspect_pulse)
+    print("\n\n\n" + color.BOLD + "AlientVault OTX Pulse Report for: " + color.END + suspect_pulse)
+    print("https://otx.alienvault.com/pulse/" + suspect_pulse)
+    print("\t{:<25} {}".format("Pulse Author:",otx_pulse_results['author_name']))
+    print("\t{:<25} {}".format("Pulse Name:",otx_pulse_results['name']))
+    print("\t{:<25} {}".format("TLP:",otx_pulse_results['TLP'].title()))
+    print("\t{:<25} {}".format("Modified:",otx_pulse_results['modified']))
+    print("\t{:<25} {}".format("Created:",otx_pulse_results['created']))
+    
+    if otx_pulse_results['tags']:
+        if len(otx_pulse_results['tags']) <= 5:
+            print("\t" + color.UNDERLINE + 'Tags:' + color.END)
+            for tag in otx_pulse_results['tags']:
+                print("\t   " + tag)
+        else:
+            pass
+
+    if otx_pulse_results['malware_families']:
+        if len(otx_pulse_results['malware_families']) <= 5:
+            print("\t" + color.UNDERLINE + 'Malware Families:' + color.END)
+            for malware in otx_pulse_results['malware_families']:
+                print("\t   " + malware)
+        else:
+            pass
+
+    if otx_pulse_results['attack_ids']:
+        if len(otx_pulse_results['attack_ids']) <= 5:
+            print("\t" + color.UNDERLINE + 'Mitre ATT&CK:' + color.END)
+            for attack in otx_pulse_results['attack_ids']:
+                print("\t   " + attack)
+        else:
+            pass
+
+    print(color.UNDERLINE + "\nDecription:" + color.END)
+    print(otx_pulse_results['description'])
 
 
 def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
