@@ -790,7 +790,7 @@ def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise
                 print("\t\t{:<16} {}".format("IP:",domain['ip']))
         
             if domain['whitelisted'] == False:
-                print("\t\t{:<16} {:}".format("Whitelisted:","Yes"))
+                print("\t\t{:<16} {:}".format("Whitelisted:","No"))
             else:
                 print("\t\t{:<16} {}".format("Whitelisted:",domain['whitelisted']))
 
