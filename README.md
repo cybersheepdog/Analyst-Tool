@@ -130,16 +130,16 @@ AlienVault OTX IP Report:
      - [ ] Additional context & lookups
      - [X] ~~OTX Support~~
 - [ ]  Domains:
-     - [ ] Ability to check OTX if Hash is in a pulse for specific contributors
-     - [ ] Pulls out Mitre ATT&CK tags from the abbove pulses
+     - [X] ~~Ability to check OTX if Domain is in a pulse for specific contributors~~
+     - [X] ~~Pulls out Mitre ATT&CK tags from the above pulses~~
      - [ ] Bulk Domain lookup
      - [ ] Better domain validation
      - [ ] Additional context & lookups
 - [ ] URLs:
      - [ ] VirusTotal Support
      - [ ] AlienVault OTX Suppport
-     - [ ] Ability to check OTX if Hash is in a pulse for specific contributors
-     - [ ] Pulls out Mitre ATT&CK tags from the abbove pulses
+     - [ ] Ability to check OTX if URL is in a pulse for specific contributors
+     - [ ] Pulls out Mitre ATT&CK tags from the above pulses
      - [ ] Additional context & lookuups
 - [ ] [Common Windows Security Identifier Decoding](https://docs.microsoft.com/en-us/windows/security/identity-protection/access-control/security-identifiers)
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
@@ -157,6 +157,7 @@ AlienVault OTX IP Report:
      - [X] ~~VirusTotal~~
 - [ ] Display info about WEVID's and Option codes.  Not just a link
 - [ ] Display info about ports and not just a link.
+- [X] ~~AlienVault OTX Pulse ID lookup~~
 - [ ] Color coding for expired certificates
 - [ ] Color coding for newly created certificates
 - [ ] Email reputation checks
