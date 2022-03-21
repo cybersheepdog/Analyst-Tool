@@ -20,7 +20,7 @@ from attackcti import attack_client
 from IPython.display import display, Markdown
 
 # Regex to be used in the main loop of the Jupyter Notebook
-epoch_regex = '^[0-9]{10}(\.[0-9]{0,6})?$'
+epoch_regex = '^[0-9]{10,16}(\.[0-9]{0,6})?$'
 otx_pulse_regex = '^[0-9a-fA-F]{24}$'
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
 mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
