@@ -899,7 +899,16 @@ def print_alien_vault_url_results(otx, suspect_url, otx_intel_list, enterprise, 
     
 
 def print_converted_epoch_timestamp(clipboard_contents):
-    clipboard_contents = float(clipboard_contents)
+    if re.match('^[0-9]{10,16}$', clipboard_contents):
+        if re.match('^[0-9]{10}$', clipboard_contents):
+            clipboard_contents = float(clipboard_contents)
+        else:
+            part_1 = clipboard_contents[:10]
+            part_2 = clipboard_contents[10:]
+            clipboard_contents = part_1 + "." + part_2         
+            clipboard_contents = float(clipboard_contents)
+    else:   
+        clipboard_contents = float(clipboard_contents)
     try:
         datetime.datetime.fromtimestamp(clipboard_contents)
     except ValueError as e:
