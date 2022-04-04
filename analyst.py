@@ -3,6 +3,7 @@
 # License: BSD 3-Clause
 # Purpose:  To help automate some of an analyst workflow as much as possible.  Simply copy an Domain, Hash, IP Address, Port # or Windows Event ID and the main script will pull the 
 
+import base64
 import datetime
 import ipaddress
 import json
@@ -114,6 +115,7 @@ def analyst(terminal=0):
                         print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list, enterprise, mitre_techniques)
                     elif validators.url(clipboard_contents) == True:
                         suspect_url = clipboard_contents
+                        print_virus_total_url_report(virus_total_headers, suspect_url)
                         print_alien_vault_url_results(otx, suspect_url, otx_intel_list, enterprise, mitre_techniques)
                     elif re.match(mitre_regex, clipboard_contents):
                         mitre = clipboard_contents.strip()
@@ -888,7 +890,10 @@ def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list, enterprise, mi
 
 def print_alien_vault_url_results(otx, suspect_url, otx_intel_list, enterprise, mitre_techniques):
     otx_url_results = otx.get_indicator_details_full(IndicatorTypes.URL, suspect_url)
-    print('\n' + color.UNDERLINE + 'AlienVault OTX URL Report for:' + color.END + ' ' + suspect_url)
+ 
+    sanitized_url = sanitize_url(suspect_url)
+
+    print('\n' + color.UNDERLINE + 'AlienVault OTX URL Report for:' + color.END + ' ' + sanitized_url)
     if otx_intel_list == None:
         pass
     else:
@@ -1078,6 +1083,29 @@ def print_ip_detections(vt_ip_response):
     print('\t{:<25} {}'.format('Undetected:',alert_categories['unrated']))
     print('\t{:<25} {}'.format('Time Out:',alert_categories['time out']))
     
+def print_lists(attribute_list, name):
+    """
+    Takes a dictionary containing a single key value pair.  This usually comes from the JSON output of VirustTotal or ALienVault OTX.  
+    Example Usage:  print_lists(vt_url_response['data']['attributes']['tags'],"Tags")
+
+
+    """
+    try:
+        attribute_list
+    except:
+        pass
+    else:
+        if len(attribute_list) <= 5:
+            print("\t" + color.UNDERLINE + name + color.END + ":")
+            for line in attribute_list:
+                print("\t   " + line)
+        else:
+            count = 0
+            for line in attribute_list:
+                if count <= 4:
+                    print("\t   " + line)
+                    count = count + 1
+
 def print_mitre_tactic(mitre_tactic, enterprise, terminal):
     """Searches through Mitre ATT&CK for a tactic and pulls the inforation out and prints to the screen.
     
@@ -1662,6 +1690,47 @@ def print_vt_domain_report(suspect_domain, virus_total_headers, vt_user):
     else:
         print('\t{:<30} {}'.format('Not Before:',vt_domain_response['data']['attributes']['last_https_certificate']['validity']['not_before']))
     print("https://www.virustotal.com/gui/domain/"+ suspect_domain)
+
+def print_virus_total_url_report(virus_total_headers, suspect_url):
+    """
+
+    """
+    URL_ID = base64.urlsafe_b64encode(suspect_url.encode()).decode().strip("=")
+    vt_url_report = 'https://www.virustotal.com/api/v3/urls/URL_ID'
+    vt_url_report = vt_url_report.replace("URL_ID", URL_ID)
+    response = requests.request("GET", vt_url_report, headers=virus_total_headers)
+    vt_url_response = response.text
+    vt_url_response = json.loads(vt_url_response)
+    
+    sanitized_url = sanitize_url(suspect_url)
+    
+    print(color.UNDERLINE + "VirusTotal URL Report for:" + color.END + " " + sanitized_url)
+
+    print_ip_detections(vt_url_response)
+    vt_url_report = 'https://www.virustotal.com/gui/url/' + vt_url_response['data']['id']
+    print('\n')
+    print_lists(vt_url_response['data']['attributes']['tags'],"Tags")
+    print_lists( vt_url_response['data']['attributes']['threat_names'],"Threat Name")
+    print('\n')
+    last_analysis_date = vt_url_response['data']['attributes']['last_analysis_date']
+    print("\t{:<25} {}".format("Last Analysis Date:",datetime.datetime.fromtimestamp(last_analysis_date)))
+    first_submission_date = vt_url_response['data']['attributes']['first_submission_date']
+    print("\t{:<25} {}".format("First Submission Date:",datetime.datetime.fromtimestamp(first_submission_date)))
+    last_submission_date = vt_url_response['data']['attributes']['last_submission_date']
+    print("\t{:<25} {}".format("Last Submission Date:",datetime.datetime.fromtimestamp(last_submission_date)))
+    print("\t{:<25} {}".format("Times Submitted:",vt_url_response['data']['attributes']['times_submitted']))
+    print(vt_url_report)
+    print('\n')
+
+def sanitize_url(suspect_url):
+    url_list = suspect_url.split(":")
+    if url_list[0] == 'http':
+        sanitized_url = 'hxxp:' + url_list[1]
+    elif url_list[0] == 'https':
+        sanitized_url = 'hxxps:' + url_list[1]
+    else:
+        sanitized_url = 'hxxp:' + suspect_url
+    return sanitized_url
 
 def vt_api_count(virus_total_headers, vt_user):
     vt_api_count_url = "https://www.virustotal.com/api/v3/users/VT_ID/overall_quotas"
