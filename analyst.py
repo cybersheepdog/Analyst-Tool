@@ -26,6 +26,7 @@ otx_pulse_regex = '^[0-9a-fA-F]{24}$'
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
 mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
 port_wid_validation_regex = '^[0-9]{1,5}$'
+ipv6_regex = '^([0-9a-fA-F]{0,4}:){6}[0-9a-fA-F]{0,4}$'
 
 # Other Regex
 # Regex to pull the created date out of whois info for a domain
@@ -125,6 +126,9 @@ def analyst(terminal=0):
                     elif re.match(otx_pulse_regex, clipboard_contents):
                         suspect_pulse = clipboard_contents
                         print_otx_pulse_info(suspect_pulse, otx, otx_intel_list, enterprise, mitre_techniques)
+                    elif re.match(ipv6_regex, clipboard_contents):
+                        suspect_ip = clipboard_contents.strip()
+                        ip_whois(suspect_ip)
                     elif ipaddress.IPv4Address(clipboard_contents).is_private:
                         print('\n\n\nThis is an RFC1918 IP Address' +'\n\n\n')
                         pass
