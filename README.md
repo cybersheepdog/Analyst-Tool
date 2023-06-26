@@ -1,6 +1,6 @@
 # Analyst-Tool
 [![Build Status](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue.svg)](https://shields.io/)
-![Maintenance](https://img.shields.io/maintenance/yes/2022.svg?style=flat-square)
+![Maintenance](https://img.shields.io/maintenance/yes/2023.svg?style=flat-square)
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
