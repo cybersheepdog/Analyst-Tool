@@ -24,9 +24,11 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
 
 ### Requirements
 - attackcti
+- configparser
 - ipwhois
 - IPython
 - OTXv2
+- pycti
 - pyperclip
 - validators
 
@@ -36,6 +38,7 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
           - Abuse IP DB - Requires an API Key
           - AlienVault OTX - Reaquires and API Key
           - VirusTotal - Requires an API Key
+          - OpenCTI - Requires an API Key
      - **NOTE:**  It is recommended to at least configure the VirusTotal module.
 - Open the config.ini file and place your API Keys in the appropriate place
 ```
@@ -54,6 +57,11 @@ server = https://otx.alienvault.com/
 
 [OTX_INTEL]
 intel_list = COMA,SEPERATED,LIST,OF,OTX,PULSE,AUTHORS,GOES,HERE
+
+[OPEN_CTI]
+opencti_api_url = URL_FOR_OPENCTI_GOES_HERE
+opencti_api_token = API_TOKEN_FOR_OPENCTI_GOES_HERE
+
 ```
 - Install [Anaconda](https://www.anaconda.com/products/individual)
 - Open Anaconda prompt and type:
@@ -121,6 +129,7 @@ AlienVault OTX IP Report:
      - [X] ~~Ability to check OTX if IP is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~     	
      - [ ] Bulk IP Lookup
+     - [X] ~~OpenCTI Search Support
 - [ ] Hashes:
      - [X] ~~Ability to check OTX if Hash is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~   
@@ -128,19 +137,21 @@ AlienVault OTX IP Report:
      - [ ] Flag malicious imports
      - [ ] Brief description of what malicious import does
      - [ ] Additional context & lookups
-     - [X] ~~OTX Support~~
+     - [X] ~~OTX SearchSupport~~
 - [ ]  Domains:
      - [X] ~~Ability to check OTX if Domain is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the above pulses~~
      - [ ] Bulk Domain lookup
      - [ ] Better domain validation
      - [ ] Additional context & lookups
+     - [X] ~~OpenCTI Search Support~~
 - [ ] URLs:
-     - [ ] VirusTotal Support
-     - [ ] AlienVault OTX Suppport
-     - [ ] Ability to check OTX if URL is in a pulse for specific contributors
-     - [ ] Pulls out Mitre ATT&CK tags from the above pulses
+     - [x] ~~VirusTotal Support~~
+     - [x] ~~AlienVault OTX Suppport~~
+     - [X] ~~Ability to check OTX if URL is in a pulse for specific contributors~~
+     - [X] ~~Pulls out Mitre ATT&CK tags from the above pulses~~
      - [ ] Additional context & lookuups
+     - [X] ~~OpenCTI Search Support~~
 - [ ] [Common Windows Security Identifier Decoding](https://docs.microsoft.com/en-us/windows/security/identity-protection/access-control/security-identifiers)
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
 - [ ] [CVE Detail lookup](https://nvd.nist.gov/vuln/detail/CVE-2022-23307)
