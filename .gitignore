@@ -133,3 +133,4 @@ TestingNotebook.ipynb
 Testing/
 __pycache__/
 config.ini
+bin/

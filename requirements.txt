@@ -1,6 +1,9 @@
 attackcti
+configparser
 ipwhois
 IPython
 OTXv2
+pycti
 pyperclip
 validators
+
