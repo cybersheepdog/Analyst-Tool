@@ -118,7 +118,7 @@ def analyst(terminal=0):
                                 print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
                                 print("\n" + suspect_hash + " Not found in OpenCTI")
                             else:
-                                print_opencti_hash_results(opencti_hash_results)
+                                print_opencti_hash_results(opencti_hash_results, suspect_hash)
                         print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise, mitre_techniques)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
@@ -527,7 +527,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         if len(opencti_ip_results) == 0:
             print("\n" + suspect_ip + " Not found in OpenCTI")
         else:
-            print_opencti_ip_results(opencti_ip_results)
+            print_opencti_ip_results(opencti_ip_results, suspect_ip)
     
     if virus_total_headers == None:
         print(color.UNDERLINE + '\nVirusTotal Detections:' + color.END)
@@ -1279,11 +1279,12 @@ def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_techn
                     else:
                         print(techniques['x_mitre_detection'])
 
-def print_opencti_domain_results(opencti_domain_results):
+def print_opencti_domain_results(opencti_domain_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
     opencti_base_url = "https://octi.avertium.com/dashboard/observations/indicators/"
+    sanitized_domain = suspect_indicator.replace(".", "[.]")
     
     # get key information and assign to variables for use in printing to screen
     for item in opencti_domain_results:
@@ -1304,7 +1305,7 @@ def print_opencti_domain_results(opencti_domain_results):
             keywords.append(section['value'])
             
     #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END) 
+    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + sanitized_domain) 
     
     # Color Coded active indicator
     # value is revoked so if true it is inactive.  if false it is active.
@@ -1355,7 +1356,7 @@ def print_opencti_domain_results(opencti_domain_results):
         
     print('\t{:<25}'.format(link_url))
 
-def print_opencti_hash_results(opencti_hash_results):
+def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
@@ -1369,6 +1370,10 @@ def print_opencti_hash_results(opencti_hash_results):
         active = item['revoked']
         confidence = item['confidence']
         malicious_score = item['x_opencti_score']       
+        if "file:hashes:" in item['pattern']:
+            rule = "No yara rule in OpenCTI"
+        else:
+            rule = item['pattern'].replace("\n","\n\t\t\t\t")
         
     for item in opencti_hash_results:
         line = item['objectMarking']
@@ -1380,7 +1385,7 @@ def print_opencti_hash_results(opencti_hash_results):
             keywords.append(section['value'])
             
     #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END) 
+    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + suspect_indicator) 
     
     # Color Coded active indicator
     # value is revoked so if true it is inactive.  if false it is active.
@@ -1428,10 +1433,12 @@ def print_opencti_hash_results(opencti_hash_results):
         print('\t{:<34} {}'.format(color.GREEN + 'TLP:' + color.END,'Green'))
     else:
         print('\t{:<25} {}'.format('TLP:','Clear'))
+
+    print('\t{:<25} {}'.format('Rule:',rule))
         
     print('\t{:<25}'.format(link_url))
 
-def print_opencti_ip_results(opencti_ip_results):
+def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
@@ -1470,7 +1477,7 @@ def print_opencti_ip_results(opencti_ip_results):
             keywords.append(section['value'])
             
     #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END) 
+    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + suspect_indicator) 
     
     # Color Coded active indicator
     # value is revoked so if true it is inactive.  if false it is active.
@@ -1551,7 +1558,7 @@ def print_opencti_url_results(opencti_url_results, suspect_indicator):
     #sanitize url
     sanitized_url = suspect_indicator.replace("http","hXXP")
     #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info for' + color.END + " " + sanitized_url)
+    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + sanitized_url)
     
     url_results = []
     for item in opencti_url_results:
