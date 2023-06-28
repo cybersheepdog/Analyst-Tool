@@ -517,7 +517,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
     heading = "\n\n\nIP Analysis Report for " + suspect_ip + ":"
     print(color.BOLD + heading + color.END)
     
-    if opencti_headers == None:
+    if odpencti_headers == None:
         print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
         print('\tOpenCTI not configured.')
     else:
@@ -1443,6 +1443,7 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
     # blank list to hold tags for indicator
     keywords = []
     opencti_base_url = "https://octi.avertium.com/dashboard/observations/indicators/"
+    assoc_regex = "\\n"
     
     # get key information and assign to variables for use in printing to screen
     for item in opencti_ip_results:
@@ -1453,18 +1454,22 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
         confidence = item['confidence']
         malicious_score = item['x_opencti_score']
         opencti_whois = item['description']
-        try:
+        if re.search(assoc_regex, opencti_whois):
             opencti_whois = opencti_whois.split("\n")
-        except:
-            pass
-        else:
             association = opencti_whois[0]
-        other_whois = opencti_whois[1]
-        other_whois = other_whois.split()
-        country_code = other_whois[0].split("=")[1]
-        asn = other_whois[1].split("=")[1]
-        org = other_whois[2:]
-        org = " ".join(org)
+            other_whois = opencti_whois[1]
+            other_whois = other_whois.split()
+            country_code = other_whois[0].split("=")[1]
+            asn = other_whois[1].split("=")[1]
+            org = other_whois[2:]
+            org = " ".join(org)
+        else:
+            opencti_whois = opencti_whois.split()
+            association = "None"
+            country_code = opencti_whois[0].split("=")[1]
+            asn = opencti_whois[1].split("=")[1]
+            org = opencti_whois[2:]
+            org = " ".join(org)
         
         
     for item in opencti_ip_results:
