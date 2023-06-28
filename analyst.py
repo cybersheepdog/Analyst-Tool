@@ -1370,7 +1370,7 @@ def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
         active = item['revoked']
         confidence = item['confidence']
         malicious_score = item['x_opencti_score']       
-        if "file:hashes:" in item['pattern']:
+        if "file:hashes" in item['pattern']:
             rule = "No yara rule in OpenCTI"
         else:
             rule = item['pattern'].replace("\n","\n\t\t\t\t")
