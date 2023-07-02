@@ -517,7 +517,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
     heading = "\n\n\nIP Analysis Report for " + suspect_ip + ":"
     print(color.BOLD + heading + color.END)
     
-    if odpencti_headers == None:
+    if opencti_headers == None:
         print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
         print('\tOpenCTI not configured.')
     else:
