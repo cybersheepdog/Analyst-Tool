@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import requests
+import sys
 import time
 from pyperclip import paste
 import validators
@@ -21,6 +22,9 @@ from configparser import ConfigParser
 from attackcti import attack_client
 from IPython.display import display, Markdown
 from pycti import OpenCTIApiClient
+
+# disables python info printout to jupyter notebook
+logging.disable(sys.maxsize)
 
 # Regex to be used in the main loop of the Jupyter Notebook
 epoch_regex = '^[0-9]{10,16}(\.[0-9]{0,6})?$'
