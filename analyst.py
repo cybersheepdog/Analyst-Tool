@@ -1454,22 +1454,29 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
         confidence = item['confidence']
         malicious_score = item['x_opencti_score']
         opencti_whois = item['description']
-        if re.search(assoc_regex, opencti_whois):
-            opencti_whois = opencti_whois.split("\n")
-            association = opencti_whois[0]
-            other_whois = opencti_whois[1]
-            other_whois = other_whois.split()
-            country_code = other_whois[0].split("=")[1]
-            asn = other_whois[1].split("=")[1]
-            org = other_whois[2:]
-            org = " ".join(org)
+        if item['description'] == '':
+            association = "No info in OpenCTI"
+            country_code = ""
+            asn = "No info in OpenCTI"
+            org = "No info in OpenCTI"
+            opencti_whois = ''
         else:
-            opencti_whois = opencti_whois.split()
-            association = "None"
-            country_code = opencti_whois[0].split("=")[1]
-            asn = opencti_whois[1].split("=")[1]
-            org = opencti_whois[2:]
-            org = " ".join(org)
+            if re.search(assoc_regex, opencti_whois):
+                opencti_whois = opencti_whois.split("\n")
+                association = opencti_whois[0]
+                other_whois = opencti_whois[1]
+                other_whois = other_whois.split()
+                country_code = other_whois[0].split("=")[1]
+                asn = other_whois[1].split("=")[1]
+                org = other_whois[2:]
+                org = " ".join(org)
+            else:
+                opencti_whois = opencti_whois.split()
+                association = "None"
+                country_code = opencti_whois[0].split("=")[1]
+                asn = opencti_whois[1].split("=")[1]
+                org = opencti_whois[2:]
+                org = " ".join(org)
         
         
     for item in opencti_ip_results:
@@ -1531,7 +1538,7 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
     if country != '':
         print('\t{:<18} {}'.format('\tCountry:',country))  
     else:
-        print('\t{:<18} {}'.format('Country:','No Country in whois record')) 
+        print('\t\t{:<17} {}'.format('Country:','No info in OpenCTI')) 
     print('\t{:<18} {}'.format('\tASN:', asn))
     print('\t{:<18} {}'.format('\tOrg:', org))
 
