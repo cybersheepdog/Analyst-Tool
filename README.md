@@ -4,19 +4,26 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
+**2024/02/28: Currently doing a code refactor and adding support for:**
+- Censys
+- Shodan
+- URLScan
+
 **Linux support** is here. The color coding works perfectly in the linux terminal. To run the tool in Linux without the need for Jupyter Notebook simply run:
 ```
 python analyst_tool.py
 ```
 
 
-A python script in Jupyter Notebook to automate as much as possible an analyst's investigation and intelligence gathering for:
+A python script in Jupyter Notebook to automate as much as possible (simply copy one of the following to your clipboard) an analyst's investigation and intelligence gathering for:
 - Domains
 - Hashes
 - IP addresses
 - Mitre ATT&CK Tactics, Techniques & Sub-Techniques
 - Ports
-- Windows Event IDs.  
+- Windows Event IDs.
+- Epoch timestamp conversion to human readable.
+- OTX Pulse ID Lookup
 
 Once configured simply copy one of the above items and program will do the rest based on the configured modules and present the information to the screen. 
 
