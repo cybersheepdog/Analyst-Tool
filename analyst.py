@@ -23,6 +23,10 @@ from attackcti import attack_client
 from IPython.display import display, Markdown
 from pycti import OpenCTIApiClient
 
+# Declare OpenCTI Base URL for creating link to indicators
+# Fill in {SERVER} with the address/domain of your OpenCTI server
+opencti_base_url = "http://{SERVER}/dashboard/observations/indicators/"
+
 # disables python info printout to jupyter notebook
 logging.disable(sys.maxsize)
 
@@ -596,6 +600,7 @@ def get_opencti_from_config():
             opencti_api_url = cti_headers['opencti_api_url']
             opencti_api_token = cti_headers['opencti_api_token']
             opencti_headers = opencti_api_url + "," + opencti_api_token
+            opencti_base_url = cti_headers['opencti_base_url']
             print("OpenCTI Configured.")
             return opencti_headers
         else:
@@ -1287,7 +1292,6 @@ def print_opencti_domain_results(opencti_domain_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
-    opencti_base_url = "https://octi.avertium.com/dashboard/observations/indicators/"
     sanitized_domain = suspect_indicator.replace(".", "[.]")
     
     # get key information and assign to variables for use in printing to screen
@@ -1364,7 +1368,6 @@ def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
-    opencti_base_url = "https://octi.avertium.com/dashboard/observations/indicators/"
     
     # get key information and assign to variables for use in printing to screen
     for item in opencti_hash_results:
@@ -1446,7 +1449,6 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
-    opencti_base_url = "https://octi.avertium.com/dashboard/observations/indicators/"
     assoc_regex = "\\n"
     
     # get key information and assign to variables for use in printing to screen
@@ -1570,7 +1572,6 @@ def print_opencti_url_results(opencti_url_results, suspect_indicator):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
-    opencti_base_url = "https://octi.avertium.com/dashboard/observations/indicators/"
     #sanitize url
     sanitized_url = suspect_indicator.replace("http","hXXP")
     #Format and print informationt to screeen
