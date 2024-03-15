@@ -19,7 +19,7 @@ from OTXv2 import OTXv2
 from OTXv2 import IndicatorTypes
 from ipwhois import IPWhois
 from configparser import ConfigParser
-from attackcti import attack_client
+#from attackcti import attack_client
 from IPython.display import display, Markdown
 from pycti import OpenCTIApiClient
 
@@ -88,18 +88,19 @@ def analyst(terminal=0):
     otx_intel_list = get_otx_intel_list_from_config()
     virus_total_headers = create_virus_total_headers_from_config()
     vt_user = get_vt_user_from_config()
-    lift = attack_client()
-    logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
-    print("Initializing the Mitre ATT&CK Module.  Please be patient.")
-    try:
-        enterprise = lift.get_enterprise()
-        enterprise_techniques = lift.get_enterprise_techniques()
-        for t in enterprise_techniques:
-            mitre_techniques.append(json.loads(t.serialize()))
-    except:
-        print("Failed to initalize the Mitre ATT&CK module!")
-    else:
-        print("Mitre ATT&CK Initalized.")
+    #lift = attack_client()
+    #logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
+    #print("Initializing the Mitre ATT&CK Module.  Please be patient.")
+    print("Analyst Tool Initialized.")
+    #try:
+    #    enterprise = lift.get_enterprise()
+    #    enterprise_techniques = lift.get_enterprise_techniques()
+    #    for t in enterprise_techniques:
+    #        mitre_techniques.append(json.loads(t.serialize()))
+    #except:
+    #    print("Failed to initalize the Mitre ATT&CK module!")
+    #else:
+    #    print("Mitre ATT&CK Initalized.")
 
 
     clipboard_contents = get_clipboard_contents()
@@ -127,7 +128,7 @@ def analyst(terminal=0):
                                 print("\n" + suspect_hash + " Not found in OpenCTI")
                             else:
                                 print_opencti_hash_results(opencti_hash_results, suspect_hash)
-                        print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise, mitre_techniques)
+                        print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list)#, enterprise, mitre_techniques)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
                     elif validators.domain(clipboard_contents) == True:
@@ -142,7 +143,7 @@ def analyst(terminal=0):
                                 print("\nNot found in OpenCTI")
                             else:
                                 print_opencti_domain_results(opencti_domain_results)
-                        print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list, enterprise, mitre_techniques)
+                        print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list)#, enterprise, mitre_techniques)
                     elif validators.url(clipboard_contents) == True:
                         suspect_url = clipboard_contents
                         print_virus_total_url_report(virus_total_headers, suspect_url)
@@ -151,15 +152,15 @@ def analyst(terminal=0):
                         else:
                             opencti_url_results = query_opencti(opencti_headers, suspect_url)
                             print_opencti_url_results(opencti_url_results, suspect_url)
-                        print_alien_vault_url_results(otx, suspect_url, otx_intel_list, enterprise, mitre_techniques)
-                    elif re.match(mitre_regex, clipboard_contents):
-                        mitre = clipboard_contents.strip()
-                        is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques, terminal)
+                        print_alien_vault_url_results(otx, suspect_url, otx_intel_list)#, enterprise, mitre_techniques)
+                    #elif re.match(mitre_regex, clipboard_contents):
+                    #    mitre = clipboard_contents.strip()
+                    #    is_mitre_tactic_technique_sub_tecnique(mitre, enterprise, mitre_techniques, terminal)
                     elif re.match(epoch_regex, clipboard_contents):
                         print_converted_epoch_timestamp(clipboard_contents)
                     elif re.match(otx_pulse_regex, clipboard_contents):
                         suspect_pulse = clipboard_contents
-                        print_otx_pulse_info(suspect_pulse, otx, otx_intel_list, enterprise, mitre_techniques)
+                        print_otx_pulse_info(suspect_pulse, otx, otx_intel_list)#, enterprise, mitre_techniques)
                     elif re.match(ipv6_regex, clipboard_contents):
                         suspect_ip = clipboard_contents.strip()
                         ip_whois(suspect_ip)
@@ -168,7 +169,7 @@ def analyst(terminal=0):
                         pass
                     elif ipaddress.IPv4Address(clipboard_contents):
                         suspect_ip = clipboard_contents
-                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, enterprise, mitre_techniques, opencti_headers)
+                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, opencti_headers)#enterprise, mitre_techniques)
                     else: 
                         continue
             except:
@@ -367,7 +368,7 @@ def create_virus_total_headers_from_config():
             print("Please add your VirusTotal API Key to the config.ini file if you want to use this module.")
             virus_total_headers = ''       
         
-def determine_specific_otx_intel(otx_results, otx_intel_list, enterprise, mitre_techniques):
+def determine_specific_otx_intel(otx_results, otx_intel_list):#, enterprise, mitre_techniques):
     """Takes a list of OTX users and checks the OTX query results to see if the suspect IP appears in any of their pulses.
     
     Required Parameters:
@@ -432,22 +433,22 @@ def determine_specific_otx_intel(otx_results, otx_intel_list, enterprise, mitre_
                         else:
                             pass
                             
-                if len(pulse['attack_ids']) == 0:
-                    print('\t{:<33} {}'.format(color.UNDERLINE + 'Mitre ATT&CK:' + color.END,'None Tagged in the Pulse'))
-                else:               
-                    print('\t' + color.UNDERLINE + 'Mitre ATT&CK:' + color.END)
-                #get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)
-                    if pulse['attack_ids']:
-                        if len(pulse['attack_ids']) <= 5:
-                            get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)
-                        else:
-                            count = 0
-                            for mitre in pulse['attack_ids']:
-                                if count <= 4:
-                                    is_otx_mitre_tactic_technique_sub_tecnique(mitre['id'], enterprise, mitre_techniques)
-                                    count = count + 1
-                                else:
-                                    pass  
+                #if len(pulse['attack_ids']) == 0:
+                #    print('\t{:<33} {}'.format(color.UNDERLINE + 'Mitre ATT&CK:' + color.END,'None Tagged in the Pulse'))
+                #else:               
+                #    print('\t' + color.UNDERLINE + 'Mitre ATT&CK:' + color.END)
+                ##get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)
+                #    if pulse['attack_ids']:
+                #        if len(pulse['attack_ids']) <= 5:
+                #            get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)
+                #        else:
+                #            count = 0
+                #            for mitre in pulse['attack_ids']:
+                #                if count <= 4:
+                #                    is_otx_mitre_tactic_technique_sub_tecnique(mitre['id'], enterprise, mitre_techniques)
+                #                    count = count + 1
+                #                else:
+                #                    pass  
                                 
                 if len(pulse['references']) == 0:
                     print('\t{:<25} {}'.format(color.UNDERLINE + 'References:' + color.END,'No refrences cited for this pulse'))
@@ -474,7 +475,7 @@ def determine_specific_otx_intel(otx_results, otx_intel_list, enterprise, mitre_
         else:
             print('\t{:<25} {}'.format(author +  ' Intel:','No'))
 
-def determine_subscribed_otx_intel(otx_results, enterprise, mitre_techniques):
+def determine_subscribed_otx_intel(otx_results):#, enterprise, mitre_techniques):
     """Looks through the OTX results to see if any authors the owner of the API Key is subscribed to
     and then returns results for onlyt those along with Mitre Information.
     
@@ -489,8 +490,8 @@ def determine_subscribed_otx_intel(otx_results, enterprise, mitre_techniques):
                 print('\t{:<25} {}'.format('Pulse Created:',pulse['created']))
                 print('\t{:<25} {}'.format('Pulse Modifed:',pulse['modified']))
                 print('\t{:<25} {}'.format('Pulse:',intel_pulse))
-                print('\tMitre ATT&CK:')
-                get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)          
+                #print('\tMitre ATT&CK:')
+                #get_pulse_mitre_tags(pulse, enterprise, mitre_techniques)          
                 print('\n')
 
 def get_clipboard_contents():
@@ -505,7 +506,7 @@ def get_clipboard_contents():
     clipboard_contents = paste().strip()
     return clipboard_contents        
         
-def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, enterprise, mitre_techniques, opencti_headers):
+def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, opencti_headers):#enterprise, mitre_techniques, opencti_headers):
     """ A function to call the various IP modules if they are enabled and display them in order.  
     
     This function requires the following 4 parameters:
@@ -562,7 +563,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         print(color.UNDERLINE + '\nAlienVault OTX:' + color.END)
         print('\tAlienVault not configured.')
     else:  
-        print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list, enterprise, mitre_techniques)
+        print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list)#, enterprise, mitre_techniques)
         
 def get_mitre_technique(mitre_technique, mitre_techniques):
     for techniques in mitre_techniques:
@@ -829,13 +830,13 @@ def is_port_or_weivd(pwid):
         Press 2 for WEVID
         If neither then just press Enter
     """
-    choice = input("\n\n\nIs this a Port or Windows Event ID?\nPress 1 for Port\nPress 2 for WEVID\nIf neither then just press Enter\n")
-    if choice == '1':
-        open_port_page(pwid)
-    elif choice == '2':
-        open_wid_page(pwid)
-    else:
-        pass    
+    #choice = input("\n\n\nIs this a Port or Windows Event ID?\nPress 1 for Port\nPress 2 for WEVID\nIf neither then just press Enter\n")
+    #if choice == '1':
+    print(f"\nPort: {open_port_page(pwid)}")
+    #elif choice == '2':
+    print(f"WEVID: {open_wid_page(pwid)}")
+    #else:
+    #    pass    
     
 def open_port_page(port):
     """
@@ -846,7 +847,7 @@ def open_port_page(port):
     """
     port_url = 'https://www.speedguide.net/port.php?port=PORT_ID'
     port_url = port_url.replace("PORT_ID", port)
-    print("\n" + port_url)
+    return port_url
 
 def open_wid_page(wevid):
     """
@@ -857,21 +858,21 @@ def open_wid_page(wevid):
     """
     weivd_url = 'https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventid=W_EVID'
     wevid_url = weivd_url.replace("W_EVID", wevid)
-    print("\n" + wevid_url)
+    return wevid_url
 
 
-def print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list, enterprise, mitre_techniques):
+def print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list):#, enterprise, mitre_techniques):
     otx_domain_results = otx.get_indicator_details_full(IndicatorTypes.DOMAIN, suspect_domain)
     print("\n" + color.UNDERLINE + 'AlienVault OTX Domain Report for:' + color.END + ' ' +  suspect_domain)
 
     if otx_intel_list == None:
         pass
     else:
-        determine_specific_otx_intel(otx_domain_results, otx_intel_list, enterprise, mitre_techniques)    
+        determine_specific_otx_intel(otx_domain_results, otx_intel_list)#, enterprise, mitre_techniques)    
     print("\t{:<25} {}".format("Related Pulses:",otx_domain_results['general']['pulse_info']['count']))
     print("https://otx.alienvault.com/indicator/domain/" + suspect_domain)
 
-def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise, mitre_techniques):
+def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list):#, enterprise, mitre_techniques):
     """Takes the OTX Headers and suspect hash, pulls back inforamtion from OTX and prints it to the screen.
     
     This function requires the following 4 parameters:
@@ -900,7 +901,7 @@ def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise
     if otx_intel_list == None:
         pass
     else:
-        determine_specific_otx_intel(otx_results, otx_intel_list, enterprise, mitre_techniques)
+        determine_specific_otx_intel(otx_results, otx_intel_list)#, enterprise, mitre_techniques)
 
     print("\t{:<25} {}".format("Related Pulses:",otx_results['general']['pulse_info']['count']))
 
@@ -929,7 +930,7 @@ def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list, enterprise
 
     print("\thttps://otx.alienvault.com/indicator/file/" + suspect_hash)
 
-def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list, enterprise, mitre_techniques):
+def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list):#, enterprise, mitre_techniques):
     """Takes the OTX Headers and suspect IP, pulls back inforamtion from OTX and prints it to the screen.
     
     This function requires the following 4 parameters:
@@ -954,7 +955,7 @@ def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list, enterprise, mi
     if otx_intel_list == None:
         pass
     else:
-        determine_specific_otx_intel(otx_results, otx_intel_list, enterprise, mitre_techniques)
+        determine_specific_otx_intel(otx_results, otx_intel_list)#, enterprise, mitre_techniques)
 
     print("\n\t{:<25} {}".format("Related Pulses:",otx_results['general']['pulse_info']['count']))
 
@@ -971,7 +972,7 @@ def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list, enterprise, mi
             print("\t  {:<23} {}".format('Last Seen:',host['last']))
     print("\thttps://otx.alienvault.com/indicator/ip/" + suspect_ip)
 
-def print_alien_vault_url_results(otx, suspect_url, otx_intel_list, enterprise, mitre_techniques):
+def print_alien_vault_url_results(otx, suspect_url, otx_intel_list):#, enterprise, mitre_techniques):
     otx_url_results = otx.get_indicator_details_full(IndicatorTypes.URL, suspect_url)
  
     sanitized_url = sanitize_url(suspect_url)
@@ -980,7 +981,7 @@ def print_alien_vault_url_results(otx, suspect_url, otx_intel_list, enterprise, 
     if otx_intel_list == None:
         pass
     else:
-        determine_specific_otx_intel(otx_url_results, otx_intel_list, enterprise, mitre_techniques)
+        determine_specific_otx_intel(otx_url_results, otx_intel_list)#, enterprise, mitre_techniques)
 
     print("\t{:<25} {}".format("Related Pulses:",otx_url_results['general']['pulse_info']['count']))
     print("https://otx.alienvault.com/indicator/domain/" + suspect_url)
@@ -1740,7 +1741,7 @@ def print_otx_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_t
                     print("\t   " + techniques['name'])
                     print("\t   " + technique['url'] + "\n")
 
-def print_otx_pulse_info(suspect_pulse, otx, otx_intel_list, enterprise, mitre_techniques):
+def print_otx_pulse_info(suspect_pulse, otx, otx_intel_list):#, enterprise, mitre_techniques):
     otx_pulse_results = otx.get_pulse_details(suspect_pulse)
     print("\n\n\n" + color.BOLD + "AlientVault OTX Pulse Report for: " + color.END + suspect_pulse)
     print("https://otx.alienvault.com/pulse/" + suspect_pulse)
@@ -1786,23 +1787,23 @@ def print_otx_pulse_info(suspect_pulse, otx, otx_intel_list, enterprise, mitre_t
             else:
                 pass
 
-    if len(otx_pulse_results['attack_ids']) == 0:
-        print('\n\t{:<25} {}'.format(color.UNDERLINE + 'Mitre ATT&CK:' + color.END,'No Mitre ATT&CK tags for this pulse'))
-    elif len(otx_pulse_results['attack_ids']) <= 5:
-          print("\n\t" + color.UNDERLINE + 'Mitre ATT&CK:' + color.END)
-          for attack in otx_pulse_results['attack_ids']:
-              #print("\t   " + attack)
-              is_otx_mitre_tactic_technique_sub_tecnique(attack, enterprise, mitre_techniques)
-    else:
-        print("\n\t" + color.UNDERLINE + "Mitre ATT&CK:" + color.END)
-        count = 0
-        for attack in otx_pulse_results['attack_ids']:
-            if count <= 4:
-                #print("\t   " + attack)
-                is_otx_mitre_tactic_technique_sub_tecnique(attack, enterprise, mitre_techniques)
-                count = count + 1
-            else:
-                pass
+    #if len(otx_pulse_results['attack_ids']) == 0:
+    #    print('\n\t{:<25} {}'.format(color.UNDERLINE + 'Mitre ATT&CK:' + color.END,'No Mitre ATT&CK tags for this pulse'))
+    #elif len(otx_pulse_results['attack_ids']) <= 5:
+    #      print("\n\t" + color.UNDERLINE + 'Mitre ATT&CK:' + color.END)
+    #      for attack in otx_pulse_results['attack_ids']:
+    #          #print("\t   " + attack)
+    #          is_otx_mitre_tactic_technique_sub_tecnique(attack, enterprise, mitre_techniques)
+    #else:
+    #    print("\n\t" + color.UNDERLINE + "Mitre ATT&CK:" + color.END)
+    #    count = 0
+    #    for attack in otx_pulse_results['attack_ids']:
+    #        if count <= 4:
+    #            #print("\t   " + attack)
+    #            is_otx_mitre_tactic_technique_sub_tecnique(attack, enterprise, mitre_techniques)
+    #            count = count + 1
+    #        else:
+    #            pass
 
     print(color.UNDERLINE + "\nDecription:" + color.END)
     print(otx_pulse_results['description'])
