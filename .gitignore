@@ -134,3 +134,5 @@ Testing/
 __pycache__/
 config.ini
 bin/
+CACHEDIR.TAG
+pyvenv.cfg
