@@ -136,3 +136,4 @@ config.ini
 bin/
 CACHEDIR.TAG
 pyvenv.cfg
+share/
