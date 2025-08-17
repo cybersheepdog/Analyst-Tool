@@ -126,7 +126,7 @@ AlienVault OTX IP Report:
 	https://otx.alienvault.com/indicator/ip/171.25.193.20
 ```
 #### C2Live Sample Output
-![Sample IP Address Output](/graphics/c2live.png)
+![Sample C2Live Output](/graphics/c2live.png)
 
 ### Hash:
 
