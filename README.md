@@ -4,7 +4,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
-**2024/02/28: Currently doing a code refactor and adding support for:**
+**2025/08/17: Currently doing a code refactor and adding support for:**
 - Censys
 - Shodan
 - URLScan
@@ -142,8 +142,8 @@ AlienVault OTX IP Report:
      - [X] ~~Ability to check OTX if IP is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~     	
      - [ ] Bulk IP Lookup
-     - [X] ~~OpenCTI Search Support
-     - [x] C2Live Local Instance search
+     - [X] ~~OpenCTI Search Support~~
+     - [x] ~~C2Live Local Instance search~~
 - [ ] Hashes:
      - [X] ~~Ability to check OTX if Hash is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~   
