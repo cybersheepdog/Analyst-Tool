@@ -4,10 +4,15 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
-**2025/08/17: Currently doing a code refactor and adding support for:**
+**2025/10/19:**
+Just added LolBin & LolDriver lookups
+
+Currently doing a code refactor and adding support for:**
 - Censys
 - Shodan
 - URLScan
+
+
 
 **Linux support** is here. The color coding works perfectly in the linux terminal. To run the tool in Linux without the need for Jupyter Notebook simply run:
 ```
@@ -187,8 +192,8 @@ AlienVault OTX IP Report:
 - [ ] Color coding for newly created certificates
 - [ ] Email reputation checks
 - [X] ~~Linux Support~~
-- [ ] lolbins lookup
-- [ ] loldrivers lookup
+- [X] lolbins lookup
+- [X] loldrivers lookup
 - [ ] gtfobins lookup
 
 ## Author
