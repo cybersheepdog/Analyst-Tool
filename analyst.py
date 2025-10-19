@@ -22,7 +22,10 @@ from configparser import ConfigParser
 #from attackcti import attack_client
 from IPython.display import display, Markdown
 from pycti import OpenCTIApiClient
+
+# Custom Imports
 from c2live import get_c2live_config, query_c2live
+from lols import *
 
 
 # Declare OpenCTI Base URL for creating link to indicators
@@ -90,7 +93,9 @@ def analyst(terminal=0):
     otx_intel_list = get_otx_intel_list_from_config()
     virus_total_headers = create_virus_total_headers_from_config()
     vt_user = get_vt_user_from_config()
-    c2live_headers = get_c2live_config()
+    c2live_headersi = get_c2live_config()
+    lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
+    driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
     #lift = attack_client()
     #logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
     #print("Initializing the Mitre ATT&CK Module.  Please be patient.")
@@ -134,6 +139,10 @@ def analyst(terminal=0):
                         print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list)#, enterprise, mitre_techniques)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
+                    elif get_lolbas_file_endings(lolbas, clipboard_contents):
+                        lookup_lolbas(lolbas, clipboard_contents)
+                    elif get_loldriver_file_endings(driver, clipboard_contents):
+                         lookup_loldriver(driver, clipboard_contents)
                     elif validators.domain(clipboard_contents) == True:
                         suspect_domain = clipboard_contents
                         print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
