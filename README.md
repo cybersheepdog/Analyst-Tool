@@ -4,7 +4,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
-**2024/02/28: Currently doing a code refactor and adding support for:**
+**2025/08/17: Currently doing a code refactor and adding support for:**
 - Censys
 - Shodan
 - URLScan
@@ -32,6 +32,7 @@ In addition I want to make this tool to be beneficial to both new and seasoned a
 ### Requirements
 - attackcti
 - configparser
+- elasticsearch
 - ipwhois
 - IPython
 - OTXv2
@@ -68,6 +69,9 @@ intel_list = COMA,SEPERATED,LIST,OF,OTX,PULSE,AUTHORS,GOES,HERE
 [OPEN_CTI]
 opencti_api_url = URL_FOR_OPENCTI_GOES_HERE
 opencti_api_token = API_TOKEN_FOR_OPENCTI_GOES_HERE
+[C2LIVE]
+c2_live_url = 
+c2_live_index = c20
 
 ```
 - Install [Anaconda](https://www.anaconda.com/products/individual)
@@ -121,6 +125,8 @@ AlienVault OTX IP Report:
 	  Last Seen:              2020-05-28T16:26:41
 	https://otx.alienvault.com/indicator/ip/171.25.193.20
 ```
+#### C2Live Sample Output
+![Sample C2Live Output](/graphics/c2live.png)
 
 ### Hash:
 
@@ -136,7 +142,8 @@ AlienVault OTX IP Report:
      - [X] ~~Ability to check OTX if IP is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~     	
      - [ ] Bulk IP Lookup
-     - [X] ~~OpenCTI Search Support
+     - [X] ~~OpenCTI Search Support~~
+     - [x] ~~C2Live Local Instance search~~
 - [ ] Hashes:
      - [X] ~~Ability to check OTX if Hash is in a pulse for specific contributors~~
      - [X] ~~Pulls out Mitre ATT&CK tags from the abbove pulses~~   
