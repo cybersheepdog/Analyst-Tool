@@ -5,13 +5,12 @@
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
 **2025/10/19:**
-Just added LolBin & LolDriver lookups
+Just added LolBin & LolDriver lookups as well as the refactored MITRE module.
 
 Currently doing a code refactor and adding support for:**
 - Censys
 - Shodan
 - URLScan
-
 
 
 **Linux support** is here. The color coding works perfectly in the linux terminal. To run the tool in Linux without the need for Jupyter Notebook simply run:
@@ -174,7 +173,7 @@ AlienVault OTX IP Report:
 - [ ] [Common Windows Security Identifier Decoding](https://docs.microsoft.com/en-us/windows/security/identity-protection/access-control/security-identifiers)
 - [ ] [Windows filename lookup](https://www.echotrail.io/)
 - [ ] [CVE Detail lookup](https://nvd.nist.gov/vuln/detail/CVE-2022-23307)
-- [ ] [MITRE ATT&CK Lookup](https://attack.mitre.org/)
+- [X] ~~[MITRE ATT&CK Lookup](https://attack.mitre.org/)~~
      - [X] ~~Tactic  Prints tactic details as well as a clickalbe link to Mitre~~
      - [X] ~~Technique: Prints technique as well as a clickable link to Mitre.~~
      - [X] ~~Sub Technique: Prints sub-technique as well as a clickable link to Mitre.~~
@@ -192,8 +191,8 @@ AlienVault OTX IP Report:
 - [ ] Color coding for newly created certificates
 - [ ] Email reputation checks
 - [X] ~~Linux Support~~
-- [X] lolbins lookup
-- [X] loldrivers lookup
+- [X] ~~lolbins lookup~~
+- [X] ~~loldrivers lookup~~
 - [ ] gtfobins lookup
 
 ## Author
