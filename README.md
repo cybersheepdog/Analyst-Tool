@@ -14,9 +14,13 @@ A python script in Jupyter Notebook to automate as much as possible (simply copy
 - Epoch timestamp conversion to human readable.
 - OTX Pulse ID Lookup
 
+**NOTE: This is passive only in that it only searches via API and does not submit anything to the services that would cause it to be actively scanned.**  For example.  If an IP has not been seen by Virus Total before, using this tool to check its status will not submit it and cause it to be scanned for the 1st time.
+
 Once configured simply copy one of the above items and program will do the rest based on the configured modules and present the information to the screen. 
 
 In addition I want to make this tool to be beneficial to both new and seasoned analysts alike where it automatically presents useful information by simply copying something to the clipboard. The For more see the planned features & updates section.
+
+For more information on set, configuration and features please see [The Wiki](https://github.com/cybersheepdog/Analyst-Tool/wiki).
 
 
 ## Sample Ouput:
