@@ -18,9 +18,7 @@ A python script in Jupyter Notebook to automate as much as possible (simply copy
 
 Once configured simply copy one of the above items and program will do the rest based on the configured modules and present the information to the screen. 
 
-In addition I want to make this tool to be beneficial to both new and seasoned analysts alike where it automatically presents useful information by simply copying something to the clipboard. The For more see the planned features & updates section.
-
-For more information on set, configuration and features please see [The Wiki](https://github.com/cybersheepdog/Analyst-Tool/wiki).
+For more information on setup, configuration and features please see [The Wiki](https://github.com/cybersheepdog/Analyst-Tool/wiki).
 
 
 ## Sample Ouput:
