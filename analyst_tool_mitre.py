@@ -14,6 +14,25 @@ mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]
 
 # List to store Mitre ATT&CK techniques
 mitre_techniques = []
+mitre_tactics = []
+
+class color:
+   """Used to to color code text ouptut in order to highlight key pieces of information.
+
+      Usage Example:  print(color.PURPLE + 'Hello World' + color.END)
+
+   """
+   PURPLE = '\033[95m'
+   CYAN = '\033[96m'
+   DARKCYAN = '\033[36m'
+   BLUE = '\033[94m'
+   GREEN = '\033[92m'
+   YELLOW = '\033[93m'
+   RED = '\033[31m'
+   ORANGE = '\033[33m'
+   BOLD = '\033[1m'
+   UNDERLINE = '\033[4m'
+   END = '\033[0m'
 
 def get_mitre_technique(mitre_technique, mitre_techniques):
     for techniques in mitre_techniques:
@@ -32,23 +51,24 @@ def initialize_mitre(mitre_techniques):
 
     print("Initializing the Mitre ATT&CK Module.  Please be patient.")
     try:
-        enterprise_tactics = lift.get_enterprise_tactics()
+        mitre_tactics = lift.get_enterprise_tactics()
         enterprise_techniques = lift.get_enterprise_techniques()
-        for t in enterprise_techniques:
-            mitre_techniques.append(json.loads(t.serialize()))
+        for tech in enterprise_techniques:
+            mitre_techniques.append(json.loads(tech.serialize()))
     except:
         print("Failed to initalize the Mitre ATT&CK module!")
     else:
         print("Mitre ATT&CK Initalized.")
+        return mitre_tactics
 
-def is_mitre_tactic_technique_sub_tecnique(mitre, enterprise_tactics, mitre_techniques, terminal):
+def is_mitre_tactic_technique_sub_tecnique(mitre, mitre_tactics, mitre_techniques, terminal):
     mitre_tactic_regex = '^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$'
     mitre_technique_regex = '^T[0-9]{4}$'
     mitre_sub_technique_regex = '^T[0-9]{4}\.[0-9]{3}$'
 
     if re.match(mitre_tactic_regex, mitre):
         mitre_tactic = mitre
-        print_mitre_tactic(mitre_tactic, enterprise_tactics, terminal)
+        print_mitre_tactic(mitre_tactic, mitre_tactics, terminal)
     elif re.match(mitre_technique_regex, mitre):
         mitre_technique = mitre
         print_mitre_technique(mitre_technique, mitre_techniques, terminal)
@@ -58,7 +78,7 @@ def is_mitre_tactic_technique_sub_tecnique(mitre, enterprise_tactics, mitre_tech
         mitre_technique = mitre[0]
         print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique, terminal)
     else:
-        pass
+        print("Not a MITRE Tactic, Technique or Sub-Technique")
 
 def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique, terminal):
     """Searches through Mitre ATT&CK for a Sub-Technique and pulls the inforation out and prints to the screen.
@@ -98,7 +118,7 @@ def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_techn
                     else:
                         print(techniques['x_mitre_detection'])
 
-def print_mitre_tactic(mitre_tactic, enterprise_tactics, terminal):
+def print_mitre_tactic(mitre_tactic, mitre_tactics, terminal):
     """Searches through Mitre ATT&CK for a tactic and pulls the inforation out and prints to the screen.
 
     Requried Parameters:
@@ -110,8 +130,7 @@ def print_mitre_tactic(mitre_tactic, enterprise_tactics, terminal):
                     set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
 
     """
-
-    for tactics in enterprise_tactics:
+    for tactics in mitre_tactics:
         for tactic in tactics['external_references']:
             if tactic['external_id'] == mitre_tactic:
                 print("\n\n\nMitre Tactic: " + mitre_tactic)
