@@ -96,14 +96,13 @@ def analyst(terminal=0):
     lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
     driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
     lift = initialize_mitre()
-    mitre_tactics = get_mitre_tactics_json(filename, file_age, current_time, threshold_time, lift)
-    mitre_techniques = get_mitre_techniques_json(filename2, file_age, current_time, threshold_time, lift)
+    mitre_tactics = get_mitre_tactics_json(tactics_filename, file_age, current_time, threshold_time, lift)
+    mitre_techniques = get_mitre_techniques_json(techniques_filename, file_age, current_time, threshold_time, lift)
     verify_mitre_initialized(mitre_techniques, mitre_tactics)
     print("Analyst Tool Initialized.")
 
 
     clipboard_contents = get_clipboard_contents()
-    print(clipboard_contents)
 
     while True:
 
@@ -116,12 +115,11 @@ def analyst(terminal=0):
             try:
                 if check != clipboard_contents:
                     clipboard_contents = check     
-                    print(clipboard_contents)
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
                         print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user)
                         if opencti_headers == None:
-                            print("passing opencti")
+                            pass
                         else:
                             opencti_hash_results = query_opencti(opencti_headers, suspect_hash)
                             if len(opencti_hash_results) == 0:
@@ -140,7 +138,7 @@ def analyst(terminal=0):
                         suspect_domain = clipboard_contents
                         print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
                         if opencti_headers == None:
-                            print("passing opencti")
+                            pass
                         else:
                             opencti_domain_results = query_opencti(opencti_headers, suspect_domain)
                             if len(opencti_domain_results) == 0:
@@ -153,7 +151,7 @@ def analyst(terminal=0):
                         suspect_url = clipboard_contents
                         print_virus_total_url_report(virus_total_headers, suspect_url)
                         if opencti_headers == None:
-                            print("passing opencti")
+                            pass
                         else:
                             opencti_url_results = query_opencti(opencti_headers, suspect_url)
                             print_opencti_url_results(opencti_url_results, suspect_url)
