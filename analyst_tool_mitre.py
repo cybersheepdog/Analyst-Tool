@@ -1,7 +1,9 @@
 # Python Standard Library Imports
 import json
 import logging
+import os
 import re
+import time
 
 # 3rd Party Imports
 import logging
@@ -15,6 +17,19 @@ mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]
 # List to store Mitre ATT&CK techniques
 mitre_techniques = []
 mitre_tactics = []
+
+# Json files for Mitre tactics & techniques
+filename = "enterprise_tactics.json"
+filename2 = "mitre_techniques.json"
+
+# Define number of days for age of file
+file_age = 90
+
+# Get current time
+current_time = time.time()
+
+# Calculate time threshold
+threshold_time = current_time - (file_age * 86400)  # 86400 seconds in a day
 
 class color:
    """Used to to color code text ouptut in order to highlight key pieces of information.
@@ -34,6 +49,34 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
+def get_mitre_tactics_json(filename, file_age, current_time, threshold_time, lift):
+    """ Retrieves the locally stored json of mitre tactics, checks the age and
+    returns it.    
+    """
+    try:
+        # get age of tactics
+        tactics_file_mod_time = os.path.getmtime(filename)
+        if tactics_file_mod_time > threshold_time:
+            with open(filename, encoding="utf8") as tactics_file:
+                tactics = json.loads(tactics_file.read())
+
+        else:
+            # tactics is older than specified days
+            try:
+                tactics = lift.get_enterprise_tactics()
+                with open("enterprise_tactics.json", "w") as file:
+                    json.dump(tactics, file)
+            except:
+                with open(filename, encoding="utf8") as tactics_file:
+                    tactics = json.loads(tactics_file.read()                        )
+    except:
+        # Tactics file does not exist.  Attepmt to get tactics from API and save to file
+        tactics = lift.get_enterprise_tactics()
+        with open("enterprise_tactics.json", "w") as file:
+            json.dump(tactics, file)
+
+    return tactics
+
 def get_mitre_technique(mitre_technique, mitre_techniques):
     for techniques in mitre_techniques:
         for technique in techniques['external_references']:
@@ -45,21 +88,47 @@ def get_mitre_technique(mitre_technique, mitre_techniques):
                 if technique['external_id'] == mitre_technique:
                     print("{:<23} {}".format("Mitre Technique:",techniques['name']))
 
-def initialize_mitre(mitre_techniques):
+def get_mitre_techniques_json(filename2, file_age, current_time, threshold_time, lift):
+    """ Retrieves the locally stored json of mitre techniques, checks the age and
+    returns it.    
+    """
+    try:
+        # get age of techniques
+        techniques_file_mod_time = os.path.getmtime(filename2)
+        if techniques_file_mod_time > threshold_time:
+            with open(filename2, encoding="utf8") as techniques_file:
+                techniques = json.loads(techniques_file.read())
+        else:
+            # techniques is older than specified days
+            try:
+                enterprise_techniques = lift.get_enterprise_techniques()
+                for tech in enterprise_techniques:
+                    mitre_techniques.append(json.loads(tech.serialize()))
+                with open("mitre_techniques.json", "w") as file:
+                    json.dump(mitre_techniques, file)
+            except:
+                with open(filename2, encoding="utf8") as techniques_file:
+                    techniques = json.loads(techniques_file.read())
+    except:
+        # File does not already exist so get it from API and write to disk
+        try:
+            enterprise_techniques = lift.get_enterprise_techniques()
+            for tech in enterprise_techniques:
+                mitre_techniques.append(json.loads(tech.serialize()))
+            with open("mitre_techniques.json", "w") as file:
+                json.dump(mitre_techniques, file)
+                
+            return mitre_techniques
+        except:
+            print("Error getting MITRE Techniques")
+
+    return techniques
+
+def initialize_mitre():#mitre_techniques, mitre_tactics):
+    print("Initializing the Mitre ATT&CK Module.  Please be patient.")
     logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
     lift = attack_client()
-
-    print("Initializing the Mitre ATT&CK Module.  Please be patient.")
-    try:
-        mitre_tactics = lift.get_enterprise_tactics()
-        enterprise_techniques = lift.get_enterprise_techniques()
-        for tech in enterprise_techniques:
-            mitre_techniques.append(json.loads(tech.serialize()))
-    except:
-        print("Failed to initalize the Mitre ATT&CK module!")
-    else:
-        print("Mitre ATT&CK Initalized.")
-        return mitre_tactics
+    return lift
 
 def is_mitre_tactic_technique_sub_tecnique(mitre, mitre_tactics, mitre_techniques, terminal):
     mitre_tactic_regex = '^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$'
@@ -177,3 +246,11 @@ def print_mitre_technique(mitre_technique, mitre_techniques, terminal):
                         display(Markdown(techniques['x_mitre_detection']))
                     else:
                         print(techniques['x_mitre_detection'])
+
+def verify_mitre_initialized(mitre_techniques, mitre_tactics):
+    if len(mitre_techniques) == 0:
+        print("Mitre not initialized")
+    elif len(mitre_tactics) == 0:
+        print("Mitre not initialized")
+    else:
+        print("MITRE Initialized.")

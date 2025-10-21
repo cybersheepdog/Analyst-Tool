@@ -95,11 +95,15 @@ def analyst(terminal=0):
     c2live_headersi = get_c2live_config()
     lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
     driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
-    mitre_tactics = initialize_mitre(mitre_techniques)
+    lift = initialize_mitre()
+    mitre_tactics = get_mitre_tactics_json(filename, file_age, current_time, threshold_time, lift)
+    mitre_techniques = get_mitre_techniques_json(filename2, file_age, current_time, threshold_time, lift)
+    verify_mitre_initialized(mitre_techniques, mitre_tactics)
     print("Analyst Tool Initialized.")
 
 
     clipboard_contents = get_clipboard_contents()
+    print(clipboard_contents)
 
     while True:
 
@@ -112,6 +116,7 @@ def analyst(terminal=0):
             try:
                 if check != clipboard_contents:
                     clipboard_contents = check     
+                    print(clipboard_contents)
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
                         print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user)
