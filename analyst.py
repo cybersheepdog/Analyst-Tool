@@ -122,11 +122,7 @@ def analyst(terminal=0):
                         suspect_hash = clipboard_contents
                         print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user)
                         if opencti_headers == None:
-<<<<<<< HEAD
-                            pass 
-=======
                             pass
->>>>>>> mitre
                         else:
                             opencti_hash_results = query_opencti(opencti_headers, suspect_hash)
                             if len(opencti_hash_results) == 0:
