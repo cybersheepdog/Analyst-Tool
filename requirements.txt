@@ -3,6 +3,7 @@ configparser
 elasticsearch
 ipwhois
 IPython
+pandas
 OTXv2
 pycti
 pyperclip
