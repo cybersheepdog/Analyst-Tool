@@ -66,6 +66,9 @@ def get_mitre_tactics_json(tactics_filename, mitre_file_age, mitre_current_time,
                     tactics = lift.get_enterprise_tactics()
                     with open("enterprise_tactics.json", "w") as file:
                         json.dump(tactics, file)
+                else:
+                    with open(tactics_filename, encoding="utf8") as tactics_file:
+                        tactics = json.loads(tactics_file.read())
             except:
                 with open(tactics_filename, encoding="utf8") as tactics_file:
                     tactics = json.loads(tactics_file.read())
@@ -75,6 +78,9 @@ def get_mitre_tactics_json(tactics_filename, mitre_file_age, mitre_current_time,
             tactics = lift.get_enterprise_tactics()
             with open(tactics_filename, "w") as file:
                 json.dump(tactics, file)
+        else:
+            with open(tactics_filename, encoding="utf8") as tactics_file:
+                tactics = json.loads(tactics_file.read())
         
     return tactics
 
@@ -108,6 +114,9 @@ def get_mitre_techniques_json(techniques_filename, mitre_file_age, mitre_current
                         mitre_techniques.append(json.loads(tech.serialize()))
                     with open(techniques_filename, "w") as file:
                         json.dump(mitre_techniques, file)
+                else:
+                    with open(techniques_filename, encoding="utf8") as techniques_file:
+                        techniques = json.loads(techniques_file.read())
             except:
                 with open(techniques_filename, encoding="utf8") as techniques_file:
                     techniques = json.loads(techniques_file.read())
@@ -120,6 +129,9 @@ def get_mitre_techniques_json(techniques_filename, mitre_file_age, mitre_current
                     mitre_techniques.append(json.loads(tech.serialize()))
                 with open(techniques_filename, "w") as file:
                     json.dump(mitre_techniques, file)
+            else:
+                with open(techniques_filename, encoding="utf8") as techniques_file:
+                    mitre_techniques = json.loads(techniques_file.read())
         
                 return mitre_techniques
         except:
