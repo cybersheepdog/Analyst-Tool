@@ -246,14 +246,38 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
             opencti_whois = ''
         else:
             if re.search(assoc_regex, opencti_whois):
-                opencti_whois = opencti_whois.split("\n")
-                association = opencti_whois[0]
-                other_whois = opencti_whois[1]
-                other_whois = other_whois.split()
-                country_code = other_whois[0].split("=")[1]
-                asn = other_whois[1].split("=")[1]
-                org = other_whois[2:]
-                org = " ".join(org)
+                try:
+                    opencti_whois = opencti_whois.split("\n")
+                except:
+                    openci_whois = ""
+                try:
+                    association = opencti_whois[0]
+                except:
+                    association = ""
+                try:
+                    other_whois = opencti_whois[1]
+                except:
+                    other_whois = ""
+                try:
+                    other_whois = other_whois.split()
+                except:
+                    other_whois = ""
+                try:
+                    country_code = other_whois[0].split("=")[1]
+                except:
+                    country_code = ""
+                try:
+                    asn = other_whois[1].split("=")[1]
+                except:
+                    asn = ""
+                try:
+                    org = other_whois[2:]
+                except:
+                    org = ""
+                try:
+                    org = " ".join(org)
+                except:
+                    org = ""
             else:
                 opencti_whois = opencti_whois.split()
                 association = "None"
