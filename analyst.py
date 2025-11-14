@@ -31,11 +31,7 @@ from c2live import get_c2live_config, query_c2live
 from lols import *
 from analyst_tool_mitre import *
 from analyst_tool_virus_total import *
-
-
-# Declare OpenCTI Base URL for creating link to indicators
-# Fill in {SERVER} with the address/domain of your OpenCTI server
-opencti_base_url = "http://{SERVER}/dashboard/observations/indicators/"
+from analyst_tool_opencti import *
 
 # disables python info printout to jupyter notebook
 logging.disable(sys.maxsize)
@@ -129,7 +125,7 @@ def analyst(terminal=0):
                                 print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
                                 print("\n" + suspect_hash + " Not found in OpenCTI")
                             else:
-                                print_opencti_hash_results(opencti_hash_results, suspect_hash)
+                                print_opencti_hash_results(opencti_hash_results, suspect_hash, opencti_headers)
                         print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list)#, enterprise, mitre_techniques)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
@@ -148,7 +144,7 @@ def analyst(terminal=0):
                                 print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
                                 print("\nNot found in OpenCTI")
                             else:
-                                print_opencti_domain_results(opencti_domain_results)
+                                print_opencti_domain_results(opencti_domain_results, opencti_headers)
                         print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list)#, enterprise, mitre_techniques)
                     elif validators.url(clipboard_contents) == True:
                         suspect_url = clipboard_contents
@@ -508,7 +504,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         if len(opencti_ip_results) == 0:
             print("\n" + suspect_ip + " Not found in OpenCTI")
         else:
-            print_opencti_ip_results(opencti_ip_results, suspect_ip)
+            print_opencti_ip_results(opencti_ip_results, suspect_ip, countries, opencti_headers)
     
     if virus_total_headers == None:
         print(color.UNDERLINE + '\nVirusTotal Detections:' + color.END)
@@ -537,39 +533,6 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
     else:  
         print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list)#, enterprise, mitre_techniques)
         
-def get_opencti_from_config():
-    """ Creates a dictionary called opencti_headers that contains the formatted header needed to submit an query to OpenCTI for an atomic indicator.
-    
-    Requires an OpenCTI API Key to use. 
-    
-    Reads in the OpenCTI API Key from the config.ini file.
-    
-    Note:  You are not required to use this module.  If you do not wish to use it then you can leave the config file as is with opencti_api_toekn = None
-    
-    Returns the OpenCTI API Headers in the form of:
-        opencti_headers = OTXv2(av_headers['otx_api_key'], server=av_headers['server'])
-    """
-
-    config_object = ConfigParser()
-    try:
-        config_object.read("config.ini")
-    except:
-        print("Error with config.ini.")
-    else:
-        cti_headers = config_object["OPEN_CTI"]
-
-        if cti_headers['opencti_api_token']:
-            opencti_api_url = cti_headers['opencti_api_url']
-            opencti_api_token = cti_headers['opencti_api_token']
-            opencti_headers = opencti_api_url + "," + opencti_api_token
-            opencti_base_url = cti_headers['opencti_base_url']
-            print("OpenCTI Configured.")
-            return opencti_headers
-        else:
-            print("OpenCTI not configured.")
-            print("Please add your OpenCTI API Key to the config.ini file if you want to use this module.")
-            opencti_headers = ''  
-
 def get_otx_intel_list_from_config():
     """
     Reads the config.ini file to pull out the list Intel providers and returns a list object of those providers.
@@ -948,374 +911,6 @@ def print_lists(attribute_list, name):
                     print("\t   " + line)
                     count = count + 1
 
-def print_opencti_domain_results(opencti_domain_results, suspect_indicator):
-    """Docstring Placeholder"""
-    # blank list to hold tags for indicator
-    keywords = []
-    sanitized_domain = suspect_indicator.replace(".", "[.]")
-    
-    # get key information and assign to variables for use in printing to screen
-    for item in opencti_domain_results:
-        item_id = item['id']
-        link_url = opencti_base_url + item_id
-        source = item['createdBy']['name']
-        active = item['revoked']
-        confidence = item['confidence']
-        malicious_score = item['x_opencti_score']       
-        
-    for item in opencti_domain_results:
-        line = item['objectMarking']
-        for section in line:
-            tlp = section['definition']
-    for item in opencti_domain_results:
-        line = item['objectLabel']
-        for section in line:
-            keywords.append(section['value'])
-            
-    #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + sanitized_domain) 
-    
-    # Color Coded active indicator
-    # value is revoked so if true it is inactive.  if false it is active.
-    if active == False:
-        print('\t{:<34} {}'.format(color.GREEN + 'Active:' + color.END,'Yes'))
-    elif active == True:
-        print('\t{:<34} {}'.format(color.RED + 'Active:' + color.END,'No'))
-    else:
-        print('\t{:<25} {}'.format('Active:', active))
-        
-    
-    # Color coded malicious score
-    if int(malicious_score) >= 75:
-        print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END,malicious_score)) 
-    elif int(malicious_score) >= 50:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END,malicious_score))
-    else:
-        print('\t{:<25} {}'.format('Malicious:',malicious_score))
-        
-    # Color coded OpenCTI Confidence Score
-    if int(confidence) >= 75:
-        print('\t{:<34} {}'.format(color.RED + 'Confidence:' + color.END,'High')) 
-    elif int(confidence) >= 50:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Confidence:' + color.END,'Medium'))
-    else:
-        print('\t{:<25} {}'.format('Confidence:','Low'))
-        
-    # Print source information:
-    print('\t{:<25} {}'.format('Source:', source))
-    
-    print("\t" + color.UNDERLINE + 'Tags:' + color.END)
-    count = 0
-    for tag in keywords:
-        if count <= 4:
-            print("\t   " + tag)
-            count = count + 1
-        else:
-            pass
-    
-    if tlp == "RED":
-        print('\t{:<34} {}'.format(color.RED + 'TLP:' + color.END,'Red')) 
-    elif tlp == "AMBER":
-        print('\t{:<34} {}'.format(color.ORANGE + 'TLP:' + color.END,'Amber'))
-    elif tlp == "GREEN":
-        print('\t{:<34} {}'.format(color.GREEN + 'TLP:' + color.END,'Green'))
-    else:
-        print('\t{:<25} {}'.format('TLP:','Clear'))
-        
-    print('\t{:<25}'.format(link_url))
-
-def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
-    """Docstring Placeholder"""
-    # blank list to hold tags for indicator
-    keywords = []
-    
-    # get key information and assign to variables for use in printing to screen
-    for item in opencti_hash_results:
-        item_id = item['id']
-        link_url = opencti_base_url + item_id
-        source = item['createdBy']['name']
-        active = item['revoked']
-        confidence = item['confidence']
-        malicious_score = item['x_opencti_score']       
-        if "file:hashes" in item['pattern']:
-            rule = "No yara rule in OpenCTI"
-        else:
-            rule = item['pattern'].replace("\n","\n\t\t\t\t")
-        
-    for item in opencti_hash_results:
-        line = item['objectMarking']
-        for section in line:
-            tlp = section['definition']
-    for item in opencti_hash_results:
-        line = item['objectLabel']
-        for section in line:
-            keywords.append(section['value'])
-            
-    #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + suspect_indicator) 
-    
-    # Color Coded active indicator
-    # value is revoked so if true it is inactive.  if false it is active.
-    if active == False:
-        print('\t{:<34} {}'.format(color.GREEN + 'Active:' + color.END,'Yes'))
-    elif active == True:
-        print('\t{:<34} {}'.format(color.RED + 'Active:' + color.END,'No'))
-    else:
-        print('\t{:<25} {}'.format('Active:', active))
-        
-    
-    # Color coded malicious score
-    if int(malicious_score) >= 75:
-        print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END,malicious_score)) 
-    elif int(malicious_score) >= 50:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END,malicious_score))
-    else:
-        print('\t{:<25} {}'.format('Malicious:',malicious_score))
-        
-    # Color coded OpenCTI Confidence Score
-    if int(confidence) >= 75:
-        print('\t{:<34} {}'.format(color.RED + 'Confidence:' + color.END,'High')) 
-    elif int(confidence) >= 50:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Confidence:' + color.END,'Medium'))
-    else:
-        print('\t{:<25} {}'.format('Confidence:','Low'))
-        
-    # Print source information:
-    print('\t{:<25} {}'.format('Source:', source))
-    
-    print("\t" + color.UNDERLINE + 'Tags:' + color.END)
-    count = 0
-    for tag in keywords:
-        if count <= 4:
-            print("\t   " + tag)
-            count = count + 1
-        else:
-            pass
-    
-    if tlp == "RED":
-        print('\t{:<34} {}'.format(color.RED + 'TLP:' + color.END,'Red')) 
-    elif tlp == "AMBER":
-        print('\t{:<34} {}'.format(color.ORANGE + 'TLP:' + color.END,'Amber'))
-    elif tlp == "GREEN":
-        print('\t{:<34} {}'.format(color.GREEN + 'TLP:' + color.END,'Green'))
-    else:
-        print('\t{:<25} {}'.format('TLP:','Clear'))
-
-    print('\t{:<25} {}'.format('Rule:',rule))
-        
-    print('\t{:<25}'.format(link_url))
-
-def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
-    """Docstring Placeholder"""
-    # blank list to hold tags for indicator
-    keywords = []
-    assoc_regex = "\\n"
-    
-    # get key information and assign to variables for use in printing to screen
-    for item in opencti_ip_results:
-        item_id = item['id']
-        link_url = opencti_base_url + item_id
-        source = item['createdBy']['name']
-        active = item['revoked']
-        confidence = item['confidence']
-        malicious_score = item['x_opencti_score']
-        opencti_whois = item['description']
-        if item['description'] == '':
-            association = "No info in OpenCTI"
-            country_code = ""
-            asn = "No info in OpenCTI"
-            org = "No info in OpenCTI"
-            opencti_whois = ''
-        else:
-            if re.search(assoc_regex, opencti_whois):
-                opencti_whois = opencti_whois.split("\n")
-                association = opencti_whois[0]
-                other_whois = opencti_whois[1]
-                other_whois = other_whois.split()
-                country_code = other_whois[0].split("=")[1]
-                asn = other_whois[1].split("=")[1]
-                org = other_whois[2:]
-                org = " ".join(org)
-            else:
-                opencti_whois = opencti_whois.split()
-                association = "None"
-                country_code = opencti_whois[0].split("=")[1]
-                asn = opencti_whois[1].split("=")[1]
-                org = opencti_whois[2:]
-                org = " ".join(org)
-        
-        
-    for item in opencti_ip_results:
-        line = item['objectMarking']
-        for section in line:
-            tlp = section['definition']
-    for item in opencti_ip_results:
-        line = item['objectLabel']
-        for section in line:
-            keywords.append(section['value'])
-            
-    #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + suspect_indicator) 
-    
-    # Color Coded active indicator
-    # value is revoked so if true it is inactive.  if false it is active.
-    if active == False:
-        print('\t{:<34} {}'.format(color.GREEN + 'Active:' + color.END,'Yes'))
-    elif active == True:
-        print('\t{:<34} {}'.format(color.RED + 'Active:' + color.END,'No'))
-    else:
-        print('\t{:<25} {}'.format('Active:', active))
-        
-    
-    # Color coded malicious score
-    if int(malicious_score) >= 75:
-        print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END,malicious_score)) 
-    elif int(malicious_score) >= 50:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END,malicious_score))
-    else:
-        print('\t{:<25} {}'.format('Malicious:',malicious_score))
-        
-    # Color coded OpenCTI Confidence Score
-    if int(confidence) >= 75:
-        print('\t{:<34} {}'.format(color.RED + 'Confidence:' + color.END,'High')) 
-    elif int(confidence) >= 50:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Confidence:' + color.END,'Medium'))
-    else:
-        print('\t{:<25} {}'.format('Confidence:','Low'))
-        
-    # Print source information:
-    print('\t{:<25} {}'.format('Source:', source))
-    
-    #OpenCTI Whois
-    print("\t" + color.UNDERLINE + 'Whois Info:' + color.END)
-    print('\t{:<18} {}'.format('\tAssociation:', association))
-    if country_code == None:
-        country = country_code
-    else:
-        country_code = country_code.upper()
-        country = country_code
-    
-    for line in countries:
-        if country_code == line['Alpha-2 code']:
-            country = line['Country']
-        else:
-            pass
-
-    if country != '':
-        print('\t{:<18} {}'.format('\tCountry:',country))  
-    else:
-        print('\t\t{:<17} {}'.format('Country:','No info in OpenCTI')) 
-    print('\t{:<18} {}'.format('\tASN:', asn))
-    print('\t{:<18} {}'.format('\tOrg:', org))
-
-    print("\t" + color.UNDERLINE + 'Tags:' + color.END)
-    count = 0
-    for tag in keywords:
-        if count <= 4:
-            print("\t   " + tag)
-            count = count + 1
-        else:
-            pass
-    
-    if tlp == "RED":
-        print('\t{:<34} {}'.format(color.RED + 'TLP:' + color.END,'Red')) 
-    elif tlp == "AMBER":
-        print('\t{:<34} {}'.format(color.ORANGE + 'TLP:' + color.END,'Amber'))
-    elif tlp == "GREEN":
-        print('\t{:<34} {}'.format(color.GREEN + 'TLP:' + color.END,'Green'))
-    else:
-        print('\t{:<25} {}'.format('TLP:','Clear'))
-        
-    print('\t{:<25}'.format(link_url))
-        
-def print_opencti_url_results(opencti_url_results, suspect_indicator):
-    """Docstring Placeholder"""
-    # blank list to hold tags for indicator
-    keywords = []
-    #sanitize url
-    sanitized_url = suspect_indicator.replace("http","hXXP")
-    #Format and print informationt to screeen
-    print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + sanitized_url)
-    
-    url_results = []
-    for item in opencti_url_results:
-        if item['name'] == suspect_indicator:
-            url_results.append(item)
-
-    if not url_results:
-        opencti_url_results = []
-        
-        print('\n\tURL not found in OpenCTI')
-    else:
-        opencti_url_results = url_results
-    
-        # get key information and assign to variables for use in printing to screen
-        for item in opencti_url_results:
-            item_id = item['id']
-            link_url = opencti_base_url + item_id
-            source = item['createdBy']['name']
-            active = item['revoked']
-            confidence = item['confidence']
-            malicious_score = item['x_opencti_score']       
-        
-        for item in opencti_url_results:
-            line = item['objectMarking']
-            for section in line:
-                tlp = section['definition']
-        for item in opencti_url_results:
-            line = item['objectLabel']
-            for section in line:
-                keywords.append(section['value'])
-                 
-        # Color Coded active indicator
-        # value is revoked so if true it is inactive.  if false it is active.
-        if active == False:
-            print('\t{:<34} {}'.format(color.GREEN + 'Active:' + color.END,'Yes'))
-        elif active == True:
-            print('\t{:<34} {}'.format(color.RED + 'Active:' + color.END,'No'))
-        else:
-            print('\t{:<25} {}'.format('Active:', active))
-            
-        # Color coded malicious score
-        if int(malicious_score) >= 75:
-            print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END,malicious_score)) 
-        elif int(malicious_score) >= 50:
-            print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END,malicious_score))
-        else:
-            print('\t{:<25} {}'.format('Malicious:',malicious_score))
-        
-        # Color coded OpenCTI Confidence Score
-        if int(confidence) >= 75:
-            print('\t{:<34} {}'.format(color.RED + 'Confidence:' + color.END,'High')) 
-        elif int(confidence) >= 50:
-            print('\t{:<34} {}'.format(color.ORANGE + 'Confidence:' + color.END,'Medium'))
-        else:
-            print('\t{:<25} {}'.format('Confidence:','Low'))
-        
-        # Print source information:
-        print('\t{:<25} {}'.format('Source:', source))
-    
-        print("\t" + color.UNDERLINE + 'Tags:' + color.END)
-        count = 0
-        for tag in keywords:
-            if count <= 4:
-                print("\t   " + tag)
-                count = count + 1
-            else:
-                pass
-    
-        if tlp == "RED":
-            print('\t{:<34} {}'.format(color.RED + 'TLP:' + color.END,'Red')) 
-        elif tlp == "AMBER":
-            print('\t{:<34} {}'.format(color.ORANGE + 'TLP:' + color.END,'Amber'))
-        elif tlp == "GREEN":
-            print('\t{:<34} {}'.format(color.GREEN + 'TLP:' + color.END,'Green'))
-        else:
-            print('\t{:<25} {}'.format('TLP:','Clear'))
-        
-        print('\t{:<25}'.format(link_url))
-
-
 def print_otx_mitre_tactic(mitre_tactic, enterprise):
     """Searches through Mitre ATT&CK for a tactic and pulls the inforation out and prints to the screen.
     
@@ -1482,22 +1077,6 @@ def print_otx_pulse_info(suspect_pulse, otx, otx_intel_list):#, enterprise, mitr
                 count = count + 1
             else:
                 pass
-
-def query_opencti(opencti_headers, suspect_indicator):
-    """docstring"""
-    #coding: utf-8
-    opencti_headers = opencti_headers.split(",")
-    cti_api_url = opencti_headers[0]
-    #print(cti_api_url)
-    cti_api_token = opencti_headers[1]
-    #print(cti_api_token)
-    
-    #OpenCTI client initialization
-    opencti_api_client = OpenCTIApiClient(cti_api_url, cti_api_token)
-    
-    #submit query to OpenCTI
-    opencti_results = opencti_api_client.indicator.list(search=suspect_indicator)
-    return opencti_results
 
 def sanitize_url(suspect_url):
     url_list = suspect_url.split(":")
