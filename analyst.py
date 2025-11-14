@@ -125,7 +125,7 @@ def analyst(terminal=0):
                                 print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
                                 print("\n" + suspect_hash + " Not found in OpenCTI")
                             else:
-                                print_opencti_hash_results(opencti_hash_results, suspect_hash)
+                                print_opencti_hash_results(opencti_hash_results, suspect_hash, opencti_headers)
                         print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list)#, enterprise, mitre_techniques)
                     elif re.match(port_wid_validation_regex, clipboard_contents):
                         is_port_or_weivd(clipboard_contents)
@@ -144,7 +144,7 @@ def analyst(terminal=0):
                                 print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
                                 print("\nNot found in OpenCTI")
                             else:
-                                print_opencti_domain_results(opencti_domain_results)
+                                print_opencti_domain_results(opencti_domain_results, opencti_headers)
                         print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list)#, enterprise, mitre_techniques)
                     elif validators.url(clipboard_contents) == True:
                         suspect_url = clipboard_contents
@@ -504,7 +504,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         if len(opencti_ip_results) == 0:
             print("\n" + suspect_ip + " Not found in OpenCTI")
         else:
-            print_opencti_ip_results(opencti_ip_results, suspect_ip)
+            print_opencti_ip_results(opencti_ip_results, suspect_ip, countries, opencti_headers)
     
     if virus_total_headers == None:
         print(color.UNDERLINE + '\nVirusTotal Detections:' + color.END)

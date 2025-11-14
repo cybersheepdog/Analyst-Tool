@@ -28,11 +28,6 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
-# Declare OpenCTI Base URL for creating link to indicators
-# Fill in {SERVER} with the address/domain of your OpenCTI server
-opencti_base_url = "http://{SERVER}/dashboard/observations/indicators/"
-
-
 def get_opencti_from_config():
     """ Creates a dictionary called opencti_headers that contains the formatted header needed to submit an query to OpenCTI for an atomic indicator.
     
@@ -45,7 +40,7 @@ def get_opencti_from_config():
     Returns the OpenCTI API Headers in the form of:
         opencti_headers = OTXv2(av_headers['otx_api_key'], server=av_headers['server'])
     """
-
+    
     config_object = ConfigParser()
     try:
         config_object.read("config.ini")
@@ -58,7 +53,6 @@ def get_opencti_from_config():
             opencti_api_url = cti_headers['opencti_api_url']
             opencti_api_token = cti_headers['opencti_api_token']
             opencti_headers = opencti_api_url + "," + opencti_api_token
-            opencti_base_url = cti_headers['opencti_base_url']
             print("OpenCTI Configured.")
             return opencti_headers
         else:
@@ -66,7 +60,7 @@ def get_opencti_from_config():
             print("Please add your OpenCTI API Key to the config.ini file if you want to use this module.")
             opencti_headers = ''
 
-def print_opencti_domain_results(opencti_domain_results, suspect_indicator):
+def print_opencti_domain_results(opencti_domain_results, suspect_indicator, opencti_headers):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
@@ -75,7 +69,7 @@ def print_opencti_domain_results(opencti_domain_results, suspect_indicator):
     # get key information and assign to variables for use in printing to screen
     for item in opencti_domain_results:
         item_id = item['id']
-        link_url = opencti_base_url + item_id
+        link_url = opencti_headers.split(",")[0][:-8] + "/dashboard/observations/indicators/" + item_id
         source = item['createdBy']['name']
         active = item['revoked']
         confidence = item['confidence']
@@ -142,7 +136,7 @@ def print_opencti_domain_results(opencti_domain_results, suspect_indicator):
 
     print('\t{:<25}'.format(link_url))
 
-def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
+def print_opencti_hash_results(opencti_hash_results, suspect_indicator, opencti_headers):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
@@ -150,7 +144,7 @@ def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
     # get key information and assign to variables for use in printing to screen
     for item in opencti_hash_results:
         item_id = item['id']
-        link_url = opencti_base_url + item_id
+        link_url = opencti_headers.split(",")[0][:-8] + "/dashboard/observations/indicators/" + item_id
         source = item['createdBy']['name']
         active = item['revoked']
         confidence = item['confidence']
@@ -223,7 +217,7 @@ def print_opencti_hash_results(opencti_hash_results, suspect_indicator):
 
     print('\t{:<25}'.format(link_url))
     
-def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
+def print_opencti_ip_results(opencti_ip_results, suspect_indicator, countries, opencti_headers):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
@@ -232,59 +226,75 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
     # get key information and assign to variables for use in printing to screen
     for item in opencti_ip_results:
         item_id = item['id']
-        link_url = opencti_base_url + item_id
-        source = item['createdBy']['name']
+        link_url = opencti_headers.split(",")[0][:-8] + "/dashboard/observations/indicators/" + item_id
+        #source = item['createdBy']['name']
+        source = item['creators'][0]['name']
         active = item['revoked']
         confidence = item['confidence']
         malicious_score = item['x_opencti_score']
-        opencti_whois = item['description']
-        if item['description'] == '':
-            association = "No info in OpenCTI"
-            country_code = ""
-            asn = "No info in OpenCTI"
-            org = "No info in OpenCTI"
-            opencti_whois = ''
-        else:
-            if re.search(assoc_regex, opencti_whois):
-                try:
-                    opencti_whois = opencti_whois.split("\n")
-                except:
-                    openci_whois = ""
-                try:
-                    association = opencti_whois[0]
-                except:
-                    association = ""
-                try:
-                    other_whois = opencti_whois[1]
-                except:
-                    other_whois = ""
-                try:
-                    other_whois = other_whois.split()
-                except:
-                    other_whois = ""
-                try:
-                    country_code = other_whois[0].split("=")[1]
-                except:
-                    country_code = ""
-                try:
-                    asn = other_whois[1].split("=")[1]
-                except:
-                    asn = ""
-                try:
-                    org = other_whois[2:]
-                except:
-                    org = ""
-                try:
-                    org = " ".join(org)
-                except:
-                    org = ""
-            else:
-                opencti_whois = opencti_whois.split()
-                association = "None"
-                country_code = opencti_whois[0].split("=")[1]
-                asn = opencti_whois[1].split("=")[1]
-                org = opencti_whois[2:]
-                org = " ".join(org)
+        #opencti_whois = item['description']
+        #if item['description'] == '':
+        #    association = "No info in OpenCTI"
+        #    country_code = ""
+        #    asn = "No info in OpenCTI"
+        #    org = "No info in OpenCTI"
+        #    opencti_whois = ''
+        #else:
+        #    if re.search(assoc_regex, opencti_whois):
+        #        try:
+        #            opencti_whois = opencti_whois.split("\n")
+        #        except:
+        #            openci_whois = ""
+        #        try:
+        #            association = opencti_whois[0]
+        #        except:
+        #            association = ""
+        #        try:
+        #            other_whois = opencti_whois[1]
+        #        except:
+        #            other_whois = ""
+        #        try:
+        #            other_whois = other_whois.split()
+        #        except:
+        #            other_whois = ""
+        #        try:
+        #            country_code = other_whois[0].split("=")[1]
+        #        except:
+        #            country_code = ""
+        #        try:
+        #            asn = other_whois[1].split("=")[1]
+        #        except:
+        #            asn = ""
+        #        try:
+        #            org = other_whois[2:]
+        #        except:
+        #            org = ""
+        #        try:
+        #            org = " ".join(org)
+        #        except:
+        #            org = ""
+        #    else:
+        #        try:
+        #            opencti_whois = opencti_whois.split()
+        #        except:
+        #            opencti_whois = ""
+        #        association = "None"
+        #        try:
+        #            country_code = opencti_whois[0].split("=")[1]
+        #        except:
+        #            country_code = ""
+        #        try:
+        #            asn = opencti_whois[1].split("=")[1]
+        #        except:
+        #            asn = ""
+        #        try:
+        #            org = opencti_whois[2:]
+        #        except:
+        #            org = ""
+        #        try:
+        #            org = " ".join(org)
+        #        except:
+        #            org = ""
 
 
     for item in opencti_ip_results:
@@ -329,32 +339,32 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
     print('\t{:<25} {}'.format('Source:', source))
 
     #OpenCTI Whois
-    print("\t" + color.UNDERLINE + 'Whois Info:' + color.END)
-    print('\t{:<18} {}'.format('\tAssociation:', association))
-    if country_code == None:
-        country = country_code
-    else:
-        country_code = country_code.upper()
-        country = country_code
+    #print("\t" + color.UNDERLINE + 'Whois Info:' + color.END)
+    #print('\t{:<18} {}'.format('\tAssociation:', association))
+    #if country_code == None:
+    #    country = country_code
+    #else:
+    #    country_code = country_code.upper()
+    #    country = country_code
 
-    for line in countries:
-        if country_code == line['Alpha-2 code']:
-            country = line['Country']
-        else:
-            pass
+    #for line in countries:
+    #    if country_code == line['Alpha-2 code']:
+    #        country = line['Country']
+    #    else:
+    #        pass
 
-    if country != '':
-        print('\t{:<18} {}'.format('\tCountry:',country))
-    else:
-        print('\t\t{:<17} {}'.format('Country:','No info in OpenCTI'))
-    print('\t{:<18} {}'.format('\tASN:', asn))
-    print('\t{:<18} {}'.format('\tOrg:', org))
+    #if country != '':
+    #    print('\t{:<18} {}'.format('\tCountry:',country))
+    #else:
+    #    print('\t\t{:<17} {}'.format('Country:','No info in OpenCTI'))
+    #print('\t{:<18} {}'.format('\tASN:', asn))
+    #print('\t{:<18} {}'.format('\tOrg:', org))
 
     print("\t" + color.UNDERLINE + 'Tags:' + color.END)
     count = 0
     for tag in keywords:
         if count <= 4:
-            print("\t   " + tag)
+            print("\t\t\t\t  " + tag)
             count = count + 1
         else:
             pass
@@ -370,7 +380,7 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator):
 
     print('\t{:<25}'.format(link_url))
 
-def print_opencti_url_results(opencti_url_results, suspect_indicator):
+def print_opencti_url_results(opencti_url_results, suspect_indicator, opencti_headers):
     """Docstring Placeholder"""
     # blank list to hold tags for indicator
     keywords = []
@@ -394,7 +404,7 @@ def print_opencti_url_results(opencti_url_results, suspect_indicator):
         # get key information and assign to variables for use in printing to screen
         for item in opencti_url_results:
             item_id = item['id']
-            link_url = opencti_base_url + item_id
+            link_url = opencti_headers.split(",")[0][:-8] + "/dashboard/observations/indicators/" + item_id
             source = item['createdBy']['name']
             active = item['revoked']
             confidence = item['confidence']
