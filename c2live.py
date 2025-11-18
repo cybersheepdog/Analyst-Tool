@@ -1,5 +1,11 @@
+# Python Standard Library Imports
+
+# 3rd Paty Imports
 from configparser import ConfigParser
 from elasticsearch import Elasticsearch
+
+# Custom Imports
+from analyst_tool_utilities import *
 
 def get_c2live_config():
     """ Creates a dictionary called c2live_headers that contains the formatted header needed to submit an query to your local c2live instance.

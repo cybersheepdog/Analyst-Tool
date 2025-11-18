@@ -29,7 +29,6 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
-
 def create_virus_total_headers_from_config():
     """ Creates a dictionary called virus_total_headers that contains the formatted header needed to submit an query to VirusTotal.
     

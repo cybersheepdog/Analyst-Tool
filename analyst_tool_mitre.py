@@ -11,6 +11,9 @@ from attackcti import attack_client
 from pandas import *
 from IPython.display import display, Markdown
 
+# Custom Imports
+from analyst_tool_utilities import *
+
 # Declare Regex to determin if MITRE or not
 mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
 
@@ -30,24 +33,6 @@ mitre_current_time = time.time()
 
 # Calculate time threshold
 mitre_threshold_time = mitre_current_time - (mitre_file_age * 86400)  # 86400 seconds in a day
-
-class color:
-   """Used to to color code text ouptut in order to highlight key pieces of information.
-
-      Usage Example:  print(color.PURPLE + 'Hello World' + color.END)
-
-   """
-   PURPLE = '\033[95m'
-   CYAN = '\033[96m'
-   DARKCYAN = '\033[36m'
-   BLUE = '\033[94m'
-   GREEN = '\033[92m'
-   YELLOW = '\033[93m'
-   RED = '\033[31m'
-   ORANGE = '\033[33m'
-   BOLD = '\033[1m'
-   UNDERLINE = '\033[4m'
-   END = '\033[0m'
 
 def get_mitre_tactics_json(tactics_filename, mitre_file_age, mitre_current_time, mitre_threshold_time, lift):
     """ Retrieves the locally stored json of mitre tactics, checks the age and
