@@ -4,7 +4,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/cybersheepdog/Analyst-Tool.svg?style=flat-square)](https://github.com/cybersheepdog/Analyst-Tool/commit/master)
 ![GitHub](https://img.shields.io/github/license/cybersheepdog/Analyst-Tool)
 
-A python script in Jupyter Notebook to automate as much as possible (simply copy one of the following to your clipboard) an analyst's investigation and intelligence gathering for:
+A python script which can be run in the terminal or a Jupyter Notebook to automate as much as possible (simply copy one of the following to your clipboard) an analyst's investigation and intelligence gathering for:
 - Domains
 - Hashes
 - IP addresses
