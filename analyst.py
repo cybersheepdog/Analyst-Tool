@@ -35,7 +35,7 @@ from analyst_tool_opencti import *
 from analyst_tool_otx import *
 from analyst_tool_utilities import *
 from analyst_tool_virus_total import *
-
+from analyst_tool_shodan import *
 
 # disables python info printout to jupyter notebook
 logging.disable(sys.maxsize)
@@ -76,6 +76,7 @@ def analyst(terminal=0):
     c2live_headers = get_c2live_config()
     lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
     driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
+    shodan_headers = get_shodan_from_config()
     lift = initialize_mitre()
     mitre_tactics = get_mitre_tactics_json(tactics_filename, file_age, current_time, threshold_time, lift)
     mitre_techniques = get_mitre_techniques_json(techniques_filename, file_age, current_time, threshold_time, lift)
@@ -153,7 +154,7 @@ def analyst(terminal=0):
                         pass
                     elif ipaddress.IPv4Address(clipboard_contents):
                         suspect_ip = clipboard_contents
-                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, opencti_headers)#enterprise, mitre_techniques)
+                        get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, opencti_headers, shodan_headers)#enterprise, mitre_techniques)
                         query_c2live(suspect_ip, c2live_headers)
                     else: 
                         continue
@@ -163,7 +164,7 @@ def analyst(terminal=0):
         
         time.sleep(5)
         
-def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, opencti_headers):#enterprise, mitre_techniques, opencti_headers):
+def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers, otx, otx_intel_list, vt_user, opencti_headers, shodan_headers):#enterprise, mitre_techniques, opencti_headers):
     """ A function to call the various IP modules if they are enabled and display them in order.  
     
     This function requires the following 4 parameters:
@@ -198,6 +199,12 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         print('\tVirus Total not configured.')
     else:
         get_vt_ip_results(suspect_ip, virus_total_headers, vt_user)
+
+    if shodan_headers == None:
+        print(color.UNDERLINE + '\n Shodan:' + color.END)
+        print('\tShodan not configured.')
+    else:
+        get_print_shodan_ip_results(shodan_headers, suspect_ip)
 
     print(color.UNDERLINE + '\nIP Information:' + color.END)
 
