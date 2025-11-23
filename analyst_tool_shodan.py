@@ -42,8 +42,8 @@ def get_shodan_from_config():
             shodan_headers = ''
 
         return shodan_headers
-        
-def get_print_shodan_ip_results(shodan_headers, suspect_ip):        
+       
+def get_print_shodan_ip_results(shodan_headers, suspect_ip):
     shodan_api_key = shodan_headers['api-key']
     api = Shodan(shodan_api_key)
     results = api.host(suspect_ip)
@@ -59,7 +59,7 @@ def get_print_shodan_ip_results(shodan_headers, suspect_ip):
             for port in results['ports']:
                 print('\t{:<25} {}'.format('',port))
     else:
-        print('\t{:<25} {}'.format('','None'))    
+        print('\t{:<25} {}'.format('','None'))
     # Print Domains if Any    
     if type(results['domains']) == list:
         if len(results['domains']) == 0:
@@ -80,29 +80,59 @@ def get_print_shodan_ip_results(shodan_headers, suspect_ip):
                 print('\t{:<25} {}'.format('',host.replace('.','[.]')))
     else:
         print('\t{:<25} {}'.format('','None'))
-    is_cobalt_strike_beacon(results['data'])
-    print(f"\nhttps://www.shodan.io/host/{suspect_ip}")
+    cs = is_cobalt_strike_beacon(results['data'])
     
+    if cs == 1:
+        if any('cobalt_strike_beacon' in item for item in results['data']):
+            for item in results['data']:
+                try:
+                    cs_beacon = item['cobalt_strike_beacon']
+                    print("\t{:<34} {}".format(color.GREEN + 'Cobalt Strike Beacon:' + color.END, "Yes"))
+                    print('\t    {:<21} {}'.format('Port:',(cs_beacon['x86']['port'])))
+                    print('\t    {:<21} {}'.format('Beacon Type:',cs_beacon['x86']['beacon_type']))
+                    print('\t    {:<21} {}'.format('Spawn To x86:',cs_beacon['x86']['post-ex.spawnto_x86']))
+                    print('\t    {:<21} {}'.format('Sleep Time:',cs_beacon['x86']['sleeptime']))
+                    print('\t    {:<21} {}'.format('Spawn To x64:',(cs_beacon['x86']['post-ex.spawnto_x64'])))
+                    print('\t    {:<21} {}'.format('Get URI:', cs_beacon['x86']['http-get.uri']))
+                    print('\t    {:<21} {}'.format('Watermark:',cs_beacon['x86']['watermark']))
+                    print('\t    {:<21} {}'.format('File Hash:',f"https://www.virustotal.com/gui/file/{cs_beacon['x86']['process-inject.stub']}"))
+                except:
+                    pass
+        else:
+            pass
+    elif cs == 2:
+        for item in results['data']:
+            try:
+                if item['product'] == 'Cobalt Strike Beacon':
+                    print("\t{:<34} {}".format(color.GREEN + 'Cobalt Strike Beacon:' + color.END, "Yes, but no config info."))
+                else:
+                    pass
+            except:
+                pass        
+    else:
+         print('\n\t{:<25} {}'.format('Cobalt Strike Beacon:','No'))     
+    
+    print(f"\n\thttps://www.shodan.io/host/{suspect_ip}")
+
 def is_cobalt_strike_beacon(results):
     """
     The expected argument ins results['data'] where results = api.host(suspect_ip).  
     Should be a list of dictionaries
     """
-    if any('cobalt_strike_beacon' in item for item in results):
-        for item in results:
-        #if item['cobalt_strike_beacon']:
+    cs = 0
+    for item in results:
+        try:
+            item['cobalt_strike_beacon']
+            cs = 1
+            return cs
+            break
+        except:
             try:
-                cs_beacon = item['cobalt_strike_beacon']
+                if item['product'] == 'Cobalt Strike Beacon':
+                    cs = 2
+                    return cs
+                    break
             except:
                 pass
-        print("\t{:<34} {}".format(color.GREEN + 'Cobalt Strike Beacon:' + color.END, "Yes"))
-        print('\t    {:<21} {}'.format('Port:',(cs_beacon['x86']['port'])))
-        print('\t    {:<21} {}'.format('Beacon Type:',cs_beacon['x86']['beacon_type']))
-        print('\t    {:<21} {}'.format('Spawn To x86:',cs_beacon['x86']['post-ex.spawnto_x86']))
-        print('\t    {:<21} {}'.format('Sleep Time:',cs_beacon['x86']['sleeptime']))
-        print('\t    {:<21} {}'.format('Spawn To x64:',(cs_beacon['x86']['post-ex.spawnto_x64'])))
-        print('\t    {:<21} {}'.format('Get URI:', cs_beacon['x86']['http-get.uri']))
-        print('\t    {:<21} {}'.format('Watermark:',cs_beacon['x86']['watermark']))
-        print('\t    {:<21} {}'.format('File Hash:',f"https://www.virustotal.com/gui/file/{cs_beacon['x86']['process-inject.stub']}"))
-    else:
-        print('\n\t{:<25} {}'.format('Cobalt Strike Beacon:','No'))
+        else:
+            pass
