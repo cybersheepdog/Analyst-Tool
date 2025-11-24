@@ -3,9 +3,10 @@ configparser
 elasticsearch
 ipwhois
 IPython
-pandas
 OTXv2
+pandas
 pycti
 pyperclip
+shodan
 validators
 
