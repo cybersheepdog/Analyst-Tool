@@ -1,3 +1,4 @@
+aiohttp
 attackcti
 configparser
 elasticsearch
@@ -7,6 +8,7 @@ OTXv2
 pandas
 pycti
 pyperclip
+requests
 shodan
 validators
 

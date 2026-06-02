@@ -1,264 +1,111 @@
-# Python Standard Library Imports
 import json
 import logging
 import os
 import re
 import time
-
-# 3rd Party Imports
-import logging
+import asyncio
 from attackcti import attack_client
-from pandas import *
 from IPython.display import display, Markdown
 
-# Custom Imports
-from analyst_tool_utilities import *
+# Custom Utility Imports
+from analyst_tool_utilities import color
 
-# Declare Regex to determin if MITRE or not
-mitre_regex = '^T[0-9]{4}\.[0-9]{3}$|^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$|T[0-9]{4}$'
-
-# List to store Mitre ATT&CK techniques
-mitre_techniques = []
-mitre_tactics = []
-
-# Json files for Mitre tactics & techniques
-tactics_filename = "enterprise_tactics.json"
-techniques_filename = "mitre_techniques.json"
-
-# Define number of days for age of file
-mitre_file_age = 90
-
-# Get current time
-mitre_current_time = time.time()
-
-# Calculate time threshold
-mitre_threshold_time = mitre_current_time - (mitre_file_age * 86400)  # 86400 seconds in a day
-
-def get_mitre_tactics_json(tactics_filename, mitre_file_age, mitre_current_time, mitre_threshold_time, lift):
-    """ Retrieves the locally stored json of mitre tactics, checks the age and
-    returns it.    
-    """
-    try:
-        # get age of tactics
-        tactics_file_mod_time = os.path.getmtime(tactics_filename)
-        if tactics_file_mod_time > mitre_threshold_time:
-            with open(tactics_filename, encoding="utf8") as tactics_file:
-                tactics = json.loads(tactics_file.read())
-        else:
-            # tactics is older than specified days
-            try:
-                if lift != 0:
-                    tactics = lift.get_enterprise_tactics()
-                    with open("enterprise_tactics.json", "w") as file:
-                        json.dump(tactics, file)
-                else:
-                    with open(tactics_filename, encoding="utf8") as tactics_file:
-                        tactics = json.loads(tactics_file.read())
-            except:
-                with open(tactics_filename, encoding="utf8") as tactics_file:
-                    tactics = json.loads(tactics_file.read())
-    except:
-        # Tactics file does not exist.  Attepmt to get tactics from API and save to file
-        if lift != 0:
-            tactics = lift.get_enterprise_tactics()
-            with open(tactics_filename, "w") as file:
-                json.dump(tactics, file)
-        else:
-            with open(tactics_filename, encoding="utf8") as tactics_file:
-                tactics = json.loads(tactics_file.read())
+class AsyncAnalystToolMitre:
+    def __init__(self, terminal=1):
+        self.terminal = terminal
+        self.mitre_tactics = []
+        self.mitre_techniques = []
+        self.tactics_filename = "enterprise_tactics.json"
+        self.techniques_filename = "mitre_techniques.json"
+        self.lift = self._initialize_mitre()
         
-    return tactics
+        # Load data on init
+        self.mitre_tactics = self._load_data(self.tactics_filename, "tactics")
+        self.mitre_techniques = self._load_data(self.techniques_filename, "techniques")
 
-def get_mitre_technique(mitre_technique, mitre_techniques):
-    for techniques in mitre_techniques:
-        for technique in techniques['external_references']:
-            try:
-                technique['external_id'] == mitre_technique
-            except:
-                pass
-            else:
-                if technique['external_id'] == mitre_technique:
-                    print("{:<23} {}".format("Mitre Technique:",techniques['name']))
-
-def get_mitre_techniques_json(techniques_filename, mitre_file_age, mitre_current_time, mitre_threshold_time, lift):
-    """ Retrieves the locally stored json of mitre techniques, checks the age and
-    returns it.    
-    """
-    try:
-        # get age of techniques
-        techniques_file_mod_time = os.path.getmtime(techniques_filename)
-        if techniques_file_mod_time > mitre_threshold_time:
-            with open(techniques_filename, encoding="utf8") as techniques_file:
-                techniques = json.loads(techniques_file.read())
-        else:
-            # techniques is older than specified days
-            try:
-                if lift != 0:
-                    enterprise_techniques = lift.get_enterprise_techniques()
-                    for tech in enterprise_techniques:
-                        mitre_techniques.append(json.loads(tech.serialize()))
-                    with open(techniques_filename, "w") as file:
-                        json.dump(mitre_techniques, file)
-                else:
-                    with open(techniques_filename, encoding="utf8") as techniques_file:
-                        techniques = json.loads(techniques_file.read())
-            except:
-                with open(techniques_filename, encoding="utf8") as techniques_file:
-                    techniques = json.loads(techniques_file.read())
-    except:
-        # File does not already exist so get it from API and write to disk
+    def _initialize_mitre(self):
+        logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
         try:
-            if lift != 0:
-                enterprise_techniques = lift.get_enterprise_techniques()
-                for tech in enterprise_techniques:
-                    mitre_techniques.append(json.loads(tech.serialize()))
-                with open(techniques_filename, "w") as file:
-                    json.dump(mitre_techniques, file)
-            else:
-                with open(techniques_filename, encoding="utf8") as techniques_file:
-                    mitre_techniques = json.loads(techniques_file.read())
-        
-                return mitre_techniques
+            return attack_client()
         except:
-            print("Error getting MITRE Techniques")
+            return None
+
+    def _load_data(self, filename, data_type):
+        """Maintains your original file age logic/JSON loading."""
+        threshold = time.time() - (90 * 86400)
         
-    return techniques
-
-def initialize_mitre():
-    print("Initializing the Mitre ATT&CK Module.  Please be patient.")
-    logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
-    try:
-        lift = attack_client()
-    except:
-        lift = 0
-
-    return lift
-
-def is_mitre_tactic_technique_sub_tecnique(mitre, mitre_tactics, mitre_techniques, terminal):
-    mitre_tactic_regex = '^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$'
-    mitre_technique_regex = '^T[0-9]{4}$'
-    mitre_sub_technique_regex = '^T[0-9]{4}\.[0-9]{3}$'
-
-    if re.match(mitre_tactic_regex, mitre):
-        mitre_tactic = mitre
-        print_mitre_tactic(mitre_tactic, mitre_tactics, terminal)
-    elif re.match(mitre_technique_regex, mitre):
-        mitre_technique = mitre
-        print_mitre_technique(mitre_technique, mitre_techniques, terminal)
-    elif re.match(mitre_sub_technique_regex, mitre):
-        mitre_sub_technique = mitre
-        mitre = mitre.split(".")
-        mitre_technique = mitre[0]
-        print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique, terminal)
-    else:
-        print("Not a MITRE Tactic, Technique or Sub-Technique")
-
-def print_mitre_sub_technique(mitre_sub_technique, mitre_techniques, mitre_technique, terminal):
-    """Searches through Mitre ATT&CK for a Sub-Technique and pulls the inforation out and prints to the screen.
-
-    Requried Parameters:
-         mitre_sub_technique - derived from the is_mitre_tactic_technique_sub_tecnique function
-         mitre_techniques - list of mitre att&ck techniques derived from mitre initializaiton in the analyst function
-         mitre_techniqe - derived from the is_mitre_tactic_technique_sub_tecnique function
-
-    Optional Parameter:
-         terminal - leave set to 0 to display markdown in jupyter notebook
-                    set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
-
-    """
-    for techniques in mitre_techniques:
-        for technique in techniques['external_references']:
-        #print(technique['external_id'])
+        if os.path.exists(filename) and os.path.getmtime(filename) > threshold:
+            with open(filename, encoding="utf8") as f:
+                return json.load(f)
+        
+        # Fallback to API if file is missing or old
+        if self.lift:
             try:
-                technique['external_id'] == mitre_sub_technique
-            except:
-                pass
-            else:
-                if technique['external_id'] == mitre_sub_technique:
-                    print("\n\n\n{:<23} {}".format("Mitre Tactic:",techniques['kill_chain_phases'][0]['phase_name'].title()))
-                    get_mitre_technique(mitre_technique, mitre_techniques)
-                    print("Mitre Sub-Technique:\t" + technique['external_id'])
-                    print(technique['url'] + "\n")
-                    print(color.BOLD + techniques['name'] + color.END)
-                    if terminal == 0:
-                        display(Markdown(techniques['description']))
-                    else:
-                        print(techniques['description'])
-                    print("\n")
-                    print(color.BOLD + "Detection:" + color.END)
-                    if terminal == 0:
-                        display(Markdown(techniques['x_mitre_detection']))
-                    else:
-                        print(techniques['x_mitre_detection'])
-
-def print_mitre_tactic(mitre_tactic, mitre_tactics, terminal):
-    """Searches through Mitre ATT&CK for a tactic and pulls the inforation out and prints to the screen.
-
-    Requried Parameters:
-         mitre_tactic - derived from the is_mitre_tactic_technique_sub_tecnique function
-         enterprise - ditionary of mitre att&ck objects derived from mitre initializaiton in the analyst function
-
-    Optional Parameter:
-         terminal - leave set to 0 to display markdown in jupyter notebook
-                    set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
-
-    """
-    for tactics in mitre_tactics:
-        for tactic in tactics['external_references']:
-            if tactic['external_id'] == mitre_tactic:
-                print("\n\n\nMitre Tactic: " + mitre_tactic)
-                print(color.BOLD + tactics['name'] + ":\t" + color.END)
-                print(tactic['url'] + '\n')
-                if terminal == 0:
-                    display(Markdown(tactics['description']))
+                if data_type == "tactics":
+                    data = self.lift.get_enterprise_tactics()
                 else:
-                    print(tactics['description'])
+                    data = [json.loads(t.serialize()) for t in self.lift.get_enterprise_techniques()]
+                
+                with open(filename, "w") as f:
+                    json.dump(data, f)
+                return data
+            except Exception as e:
+                print(f"Error refreshing MITRE {data_type}: {e}")
+        
+        # Fallback to existing file if API fails
+        if os.path.exists(filename):
+            with open(filename, encoding="utf8") as f:
+                return json.load(f)
+        return []
 
-def print_mitre_technique(mitre_technique, mitre_techniques, terminal):
-    """Searches through Mitre ATT&CK for a Technique and pulls the inforation out and prints to the screen.
+    async def lookup(self, indicator):
+        """The unified interface for analyst.py."""
+        # This mirrors your is_mitre_tactic_technique_sub_tecnique logic
+        mitre_tactic_regex = '^TA000[1-9]|TA001[0-1]|TA004[0,2-3]$'
+        mitre_technique_regex = '^T[0-9]{4}$'
+        mitre_sub_technique_regex = '^T[0-9]{4}\.[0-9]{3}$'
 
-    Requried Parameters:
-         mitre_techniqe - derived from the is_mitre_tactic_technique_sub_tecnique function
-         mitre_techniques - list of mitre att&ck techniques derived from mitre initializaiton in the analyst function
+        if re.match(mitre_tactic_regex, indicator):
+            self._print_tactic(indicator)
+        elif re.match(mitre_technique_regex, indicator):
+            self._print_technique(indicator)
+        elif re.match(mitre_sub_technique_regex, indicator):
+            parent = indicator.split(".")[0]
+            self._print_sub_technique(indicator, parent)
 
-    Optional Parameter:
-         terminal - leave set to 0 to display markdown in jupyter notebook
-                    set to 1 in the analyst_tool.py file to disable parkdown for displaying in terminal
+    # --- Print Methods (Preserving your original formatting) ---
+    
+    def _print_tactic(self, mitre_id):
+        for t in self.mitre_tactics:
+            for ref in t.get('external_references', []):
+                if ref.get('external_id') == mitre_id:
+                    print(f"\n\n\nMitre Tactic: {mitre_id}")
+                    print(f"{color.BOLD}{t['name']}:{color.END}\n{ref['url']}\n")
+                    self._output_format(t['description'])
 
-    """
+    def _print_technique(self, mitre_id):
+        for tech in self.mitre_techniques:
+            for ref in tech.get('external_references', []):
+                if ref.get('external_id') == mitre_id:
+                    self._render_tech_info(tech, ref)
 
-    for techniques in mitre_techniques:
-        for technique in techniques['external_references']:
-        #print(technique['external_id'])
-            try:
-                technique['external_id'] == mitre_technique
-            except:
-                pass
-            else:
-                if technique['external_id'] == mitre_technique:
-                    print("\n\n\n{:<23} {}".format("Mitre Tactic:",techniques['kill_chain_phases'][0]['phase_name'].title()))
-                    print("Mitre Technique:\t" + technique['external_id'])
-                    print(technique['url'] + "\n")
-                    print(color.BOLD + techniques['name'] + color.END)
-                    if terminal == 0:
-                        display(Markdown(techniques['description']))
-                    else:
-                        print(techniques['description'])
-                    print("\n")
-                    print(color.BOLD + "Detection:" + color.END)
-                    if terminal == 0:
-                        display(Markdown(techniques['x_mitre_detection']))
-                    else:
-                        print(techniques['x_mitre_detection'])
+    def _print_sub_technique(self, sub_id, parent_id):
+        for tech in self.mitre_techniques:
+            for ref in tech.get('external_references', []):
+                if ref.get('external_id') == sub_id:
+                    print(f"\nMitre Tactic: {tech['kill_chain_phases'][0]['phase_name'].title()}")
+                    self._print_technique(parent_id)
+                    print(f"Mitre Sub-Technique: {sub_id}\n{ref['url']}")
+                    self._render_tech_info(tech, ref)
 
-def verify_mitre_initialized(mitre_techniques, mitre_tactics):
-    if mitre_techniques is None:
-        print("Mitre not initialized")
-    elif len(mitre_techniques) == 0:
-        print("Mitre not initialized")
-    elif mitre_tactics is None:
-        print("Mitre not initialized")
-    elif len(mitre_tactics) == 0:
-        print("Mitre not initialized")
-    else:
-        print("MITRE Initialized.")
+    def _render_tech_info(self, tech, ref):
+        print(f"{color.BOLD}{tech['name']}{color.END}")
+        self._output_format(tech['description'])
+        print(f"\n{color.BOLD}Detection:{color.END}")
+        self._output_format(tech.get('x_mitre_detection', 'No detection info found.'))
+
+    def _output_format(self, content):
+        if self.terminal == 0:
+            display(Markdown(content))
+        else:
+            print(content)
