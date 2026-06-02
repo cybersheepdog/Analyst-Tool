@@ -22,9 +22,9 @@ from ipwhois import IPWhois
 from IPython.display import display, Markdown
 
 # Custom Imports
-from analyst_tool_c2live import get_c2live_config, query_c2live
-from lols import *
 from analyst_tool_abuseip import *
+from analyst_tool_c2live import get_c2live_config, query_c2live
+from analyt_tool_lols import *
 from analyst_tool_mitre import *
 from analyst_tool_opencti import *
 from analyst_tool_otx import *
