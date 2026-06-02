@@ -22,9 +22,9 @@ from ipwhois import IPWhois
 from IPython.display import display, Markdown
 
 # Custom Imports
-from analyst_tool_abuseip import *
 from analyst_tool_c2live import get_c2live_config, query_c2live
-from analyst_tool_lols import *
+from lols import *
+from analyst_tool_abuseip import *
 from analyst_tool_mitre import *
 from analyst_tool_opencti import *
 from analyst_tool_otx import *
@@ -90,27 +90,35 @@ def analyst(terminal=0):
     """
 
     abuse_ip_db_headers = create_abuse_ip_db_headers_from_config()
-    opencti_headers = get_opencti_from_config()
-    otx = create_av_otx_headers_from_config()
-    otx_intel_list = get_otx_intel_list_from_config()
+    opencti_headers     = get_opencti_from_config()
+    otx                 = create_av_otx_headers_from_config()
+    otx_intel_list      = get_otx_intel_list_from_config()
     virus_total_headers = create_virus_total_headers_from_config()
-    vt_user = get_vt_user_from_config()
-    c2live_headers = get_c2live_config()
-    shodan_headers = get_shodan_from_config()
+    vt_user             = get_vt_user_from_config()
+    c2live_headers      = get_c2live_config()
+    shodan_headers      = get_shodan_from_config()
 
     lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
     driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
 
+    # MITRE filenames mirror the constants in analyst_tool_mitre.py, defined
+    # explicitly here so they are in scope inside this function.
+    tactics_filename    = "enterprise_tactics.json"
+    techniques_filename = "mitre_techniques.json"
+    mitre_file_age      = 90                              # days
+    mitre_current_time  = time.time()
+    mitre_threshold     = mitre_current_time - (mitre_file_age * 86400)
+
     # --- Lazy MITRE loading ---
     # Only call attack_client() (slow network call) when the JSON cache on disk is stale.
-    if _mitre_cache_is_fresh(tactics_filename, techniques_filename, threshold_time, file_age):
+    if _mitre_cache_is_fresh(tactics_filename, techniques_filename, mitre_threshold, mitre_file_age):
         lift = None  # Cache is fresh — pass None; the JSON loaders will read from disk
         print("MITRE cache is fresh — skipping attack_client() init.")
     else:
         lift = initialize_mitre()
 
-    mitre_tactics = get_mitre_tactics_json(tactics_filename, file_age, current_time, threshold_time, lift)
-    mitre_techniques = get_mitre_techniques_json(techniques_filename, file_age, current_time, threshold_time, lift)
+    mitre_tactics    = get_mitre_tactics_json(tactics_filename, mitre_file_age, mitre_current_time, mitre_threshold, lift)
+    mitre_techniques = get_mitre_techniques_json(techniques_filename, mitre_file_age, mitre_current_time, mitre_threshold, lift)
     verify_mitre_initialized(mitre_techniques, mitre_tactics)
 
     print("Analyst Tool Initialized.")
@@ -384,6 +392,11 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
             print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list)
 
     _run_parallel([_opencti, _vt, _shodan, _whois_tor, _abuseipdb, _otx], max_workers=6)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ip_whois
+# ─────────────────────────────────────────────────────────────────────────────
 
 def ip_whois(suspect_ip):
     """ A function to query WhoIs for an IP address and print out information from the response.
