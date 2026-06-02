@@ -12,7 +12,6 @@ import validators
 from pyperclip import paste
 
 # Custom Imports
-from analyst_tool_virus_total import *
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Country data

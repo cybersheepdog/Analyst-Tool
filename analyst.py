@@ -5,14 +5,11 @@
 #coding: utf-8
 
 # Python Standard Library Imports
-import base64
 import datetime
 import ipaddress
-import json
 import logging
 import os
 import re
-import requests
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,13 +18,8 @@ import threading
 # 3rd Party Imports
 from pyperclip import paste
 import validators
-from OTXv2 import OTXv2
-from OTXv2 import IndicatorTypes
 from ipwhois import IPWhois
-from configparser import ConfigParser
-from attackcti import attack_client
 from IPython.display import display, Markdown
-from pycti import OpenCTIApiClient
 
 # Custom Imports
 from analyst_tool_abuseip import *

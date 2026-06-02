@@ -1,5 +1,4 @@
 # Python Standard Library Imports
-import threading
 
 # 3rd Party Imports
 from configparser import ConfigParser

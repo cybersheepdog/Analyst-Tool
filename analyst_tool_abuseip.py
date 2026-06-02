@@ -1,5 +1,4 @@
 # Python Standard Library Imports
-import datetime
 import json
 import requests
 import threading
