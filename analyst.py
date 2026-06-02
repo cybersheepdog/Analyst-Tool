@@ -5,7 +5,6 @@
 #coding: utf-8
 
 # Python Standard Library Imports
-import datetime
 import ipaddress
 import logging
 import os
@@ -16,15 +15,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 # 3rd Party Imports
-from pyperclip import paste
 import validators
 from ipwhois import IPWhois
-from IPython.display import display, Markdown
+from pyperclip import paste
 
 # Custom Imports
-from analyst_tool_abuseip import *
 from analyst_tool_c2live import get_c2live_config, query_c2live
-from analyst_tool_lols import *
+from lols import *
+from analyst_tool_abuseip import *
 from analyst_tool_mitre import *
 from analyst_tool_opencti import *
 from analyst_tool_otx import *
@@ -54,14 +52,6 @@ def _get_session():
     if not hasattr(_thread_local, 'session'):
         _thread_local.session = requests.Session()
     return _thread_local.session
-
-
-def _mitre_cache_is_fresh(tactics_filename, techniques_filename, threshold_time, file_age):
-    """Return True if both MITRE JSON cache files exist and are newer than the threshold."""
-    for fname in (tactics_filename, techniques_filename):
-        if not os.path.exists(fname):
-            return False
-    return file_age <= threshold_time
 
 
 def analyst(terminal=0):
@@ -101,25 +91,13 @@ def analyst(terminal=0):
     lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
     driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
 
-    # MITRE filenames mirror the constants in analyst_tool_mitre.py, defined
-    # explicitly here so they are in scope inside this function.
-    tactics_filename    = "enterprise_tactics.json"
-    techniques_filename = "mitre_techniques.json"
-    mitre_file_age      = 90                              # days
-    mitre_current_time  = time.time()
-    mitre_threshold     = mitre_current_time - (mitre_file_age * 86400)
-
-    # --- Lazy MITRE loading ---
-    # Only call attack_client() (slow network call) when the JSON cache on disk is stale.
-    if _mitre_cache_is_fresh(tactics_filename, techniques_filename, mitre_threshold, mitre_file_age):
-        lift = None  # Cache is fresh — pass None; the JSON loaders will read from disk
-        print("MITRE cache is fresh — skipping attack_client() init.")
-    else:
-        lift = initialize_mitre()
-
-    mitre_tactics    = get_mitre_tactics_json(tactics_filename, mitre_file_age, mitre_current_time, mitre_threshold, lift)
-    mitre_techniques = get_mitre_techniques_json(techniques_filename, mitre_file_age, mitre_current_time, mitre_threshold, lift)
-    verify_mitre_initialized(mitre_techniques, mitre_tactics)
+    # --- MITRE loading ---
+    # AsyncAnalystToolMitre handles its own cache check internally.
+    # It reads from the on-disk JSON if fresh (90-day window), or calls
+    # attack_client() only when the cache is stale. No wrapper needed here.
+    mitre = AsyncAnalystToolMitre(terminal=terminal)
+    mitre_tactics    = mitre.mitre_tactics
+    mitre_techniques = mitre.mitre_techniques
 
     print("Analyst Tool Initialized.")
 
@@ -177,10 +155,8 @@ def analyst(terminal=0):
 
                 # ── MITRE ─────────────────────────────────────────────────────────────
                 elif re.match(mitre_regex, clipboard_contents):
-                    mitre = clipboard_contents.strip()
-                    is_mitre_tactic_technique_sub_tecnique(
-                        mitre, mitre_tactics, mitre_techniques, terminal
-                    )
+                    import asyncio
+                    asyncio.run(mitre.lookup(clipboard_contents.strip()))
 
                 # ── Epoch timestamp ───────────────────────────────────────────────────
                 elif re.match(epoch_regex, clipboard_contents):
@@ -225,8 +201,7 @@ def analyst(terminal=0):
 # ─────────────────────────────────────────────────────────────────────────────
 # Parallel lookup helpers
 # Each helper fans out the API calls for one indicator type concurrently.
-# Print order is non-deterministic (first-to-finish prints first), which is
-# fine — all results appear quickly rather than one-by-one.
+# Print order is non-deterministic (first-to-finish prints first).
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_parallel(tasks, max_workers=None):
@@ -315,7 +290,7 @@ def _lookup_url_parallel(suspect_url, virus_total_headers,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# IP analysis — all sub-lookups run concurrently
+# IP analysis
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers,
