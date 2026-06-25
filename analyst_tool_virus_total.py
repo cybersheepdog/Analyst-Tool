@@ -107,7 +107,7 @@ def get_vt_ip_results(suspect_ip, virus_total_headers, vt_user):
     """
     vt_ip_report = 'https://www.virustotal.com/api/v3/ip_addresses/' + suspect_ip
     session = _get_session()
-    response = session.get(vt_ip_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    response = session_get(session, vt_ip_report, headers=virus_total_headers, timeout=_TIMEOUT)
     vt_ip_response = json.loads(response.text)
 
     print(color.UNDERLINE + '\nVirusToal Detections:' + color.END)
@@ -225,7 +225,7 @@ def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
         vt_api_count(virus_total_headers, vt_user)
 
     session = _get_session()
-    response = session.get(vt_hash_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    response = session_get(session, vt_hash_report, headers=virus_total_headers, timeout=_TIMEOUT)
     vt_hash_response = json.loads(response.text)
 
     try:
@@ -332,7 +332,7 @@ def print_vt_domain_report(suspect_domain, virus_total_headers, vt_user):
     vt_domain_report = "https://www.virustotal.com/api/v3/domains/" + suspect_domain
 
     session = _get_session()
-    response = session.get(vt_domain_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    response = session_get(session, vt_domain_report, headers=virus_total_headers, timeout=_TIMEOUT)
     vt_domain_response = json.loads(response.text)
 
     try:
@@ -392,7 +392,7 @@ def print_virus_total_url_report(virus_total_headers, suspect_url):
     vt_url_report = 'https://www.virustotal.com/api/v3/urls/' + URL_ID
 
     session = _get_session()
-    response = session.get(vt_url_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    response = session_get(session, vt_url_report, headers=virus_total_headers, timeout=_TIMEOUT)
     vt_url_response = json.loads(response.text)
 
     sanitized_url = sanitize_url(suspect_url)
@@ -421,7 +421,7 @@ def vt_api_count(virus_total_headers, vt_user):
     """Check and warn about daily VT API quota usage."""
     url = "https://www.virustotal.com/api/v3/users/" + vt_user + "/overall_quotas"
     session = _get_session()
-    response = session.get(url, headers=virus_total_headers, timeout=_TIMEOUT)
+    response = session_get(session, url, headers=virus_total_headers, timeout=_TIMEOUT)
     api_usage = json.loads(response.text)
     vt_count = api_usage['data']['api_requests_daily']['user']['used']
 

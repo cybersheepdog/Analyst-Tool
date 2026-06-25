@@ -6,12 +6,86 @@ import re
 import requests
 import threading
 import time
+import warnings
+from configparser import ConfigParser
 
 # 3rd Party Imports
 import validators
 from pyperclip import paste
 
 # Custom Imports
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SSL verification handling (shared by all modules)
+#
+# Default behaviour is unchanged: TLS certificates are verified (verify=True).
+# Setting `ssl_verify = false` under a [GENERAL] section in config.ini turns on
+# an opt-in insecure fallback: requests that fail with an SSLError are retried
+# once with verify=False, and the API clients are constructed without TLS
+# verification. This is intended for environments behind a TLS-intercepting
+# proxy or using self-signed certs. Leave it true unless you need it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+try:  # urllib3 ships with requests; guard just in case
+    from urllib3.exceptions import InsecureRequestWarning
+except Exception:  # pragma: no cover
+    InsecureRequestWarning = None
+
+# Cache the flag so we don't re-read config.ini on every single request.
+_ssl_verify_cache = None
+
+
+def get_ssl_verify_from_config():
+    """Return True if TLS certificates should be verified (the default).
+
+    Reads [GENERAL] ssl_verify from config.ini. A missing section/key, an
+    unreadable file, or any value other than false/0/no/off yields True, so
+    the secure default is preserved unless the user explicitly opts out.
+
+    The first time insecure mode is detected, InsecureRequestWarning is
+    silenced globally so the console isn't flooded across the many parallel
+    lookups.
+    """
+    global _ssl_verify_cache
+    if _ssl_verify_cache is not None:
+        return _ssl_verify_cache
+
+    verify = True
+    config_object = ConfigParser()
+    try:
+        config_object.read("config.ini")
+        value = config_object.get("GENERAL", "ssl_verify", fallback="true")
+        verify = str(value).strip().lower() not in ("false", "0", "no", "off")
+    except Exception:
+        verify = True
+
+    if not verify and InsecureRequestWarning is not None:
+        warnings.simplefilter("ignore", InsecureRequestWarning)
+
+    _ssl_verify_cache = verify
+    return _ssl_verify_cache
+
+
+def session_get(session, url, **kwargs):
+    """GET wrapper that honours the configured SSL-verify policy.
+
+    - ssl_verify = true (default): a normal verified request — behaviour is
+      identical to calling session.get(url, **kwargs) directly.
+    - ssl_verify = false: try the verified request first; only if it raises an
+      SSLError, retry the same request once with verify=False.
+
+    An explicit `verify` passed by the caller is always respected.
+    """
+    if "verify" in kwargs:
+        return session.get(url, **kwargs)
+
+    if get_ssl_verify_from_config():
+        return session.get(url, **kwargs)
+
+    try:
+        return session.get(url, verify=True, **kwargs)
+    except requests.exceptions.SSLError:
+        return session.get(url, verify=False, **kwargs)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Country data
@@ -194,7 +268,7 @@ def _load_tor_list_from_file() -> set:
 def _fetch_and_save_tor_list() -> set:
     """Download a fresh tor exit node list, save it, and return a set of IPs."""
     try:
-        response = _tor_session.get(_TOR_URL, timeout=10)
+        response = session_get(_tor_session, _TOR_URL, timeout=10)
         if response.status_code == 200:
             ips = set(response.text.splitlines())
             with open(tor_exit_nodes_filename, 'w') as f:

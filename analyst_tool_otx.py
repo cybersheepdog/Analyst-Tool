@@ -22,7 +22,13 @@ def create_av_otx_headers_from_config():
 
     av_headers = config_object["ALIEN_VAULT_OTX"]
     if av_headers['otx_api_key']:
-        av_otx_headers = OTXv2(av_headers['otx_api_key'], server=av_headers['server'])
+        verify = get_ssl_verify_from_config()
+        try:
+            av_otx_headers = OTXv2(av_headers['otx_api_key'],
+                                   server=av_headers['server'], verify=verify)
+        except TypeError:
+            # Older OTXv2 builds don't accept a verify kwarg — preserve original call.
+            av_otx_headers = OTXv2(av_headers['otx_api_key'], server=av_headers['server'])
         print("AlienVault OTX Configured.")
         return av_otx_headers
     else:

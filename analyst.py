@@ -5,6 +5,7 @@
 #coding: utf-8
 
 # Python Standard Library Imports
+import asyncio
 import ipaddress
 import logging
 import os
@@ -39,6 +40,10 @@ otx_pulse_regex = '^[0-9a-fA-F]{24}$'
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
 port_wid_validation_regex = '^[0-9]{1,5}$'
 ipv6_regex = '^([0-9a-fA-F]{0,4}:){6}[0-9a-fA-F]{0,4}$'
+# Gate regex for MITRE ATT&CK IDs: tactic (TA####), technique (T####) or
+# sub-technique (T####.###). The AsyncAnalystToolMitre.lookup() method then
+# does its own finer-grained matching to pick the correct handler.
+mitre_regex = r'^TA[0-9]{4}$|^T[0-9]{4}(\.[0-9]{3})?$'
 
 # Other Regex
 # Regex to pull the created date out of whois info for a domain
@@ -52,6 +57,25 @@ def _get_session():
     if not hasattr(_thread_local, 'session'):
         _thread_local.session = requests.Session()
     return _thread_local.session
+
+
+def _run_coro(coro):
+    """Run an async coroutine to completion in any context.
+
+    asyncio.run() raises RuntimeError when an event loop is already running,
+    which is the case inside a Jupyter notebook kernel. When that happens we
+    execute the coroutine in a short-lived worker thread (which has no running
+    loop) so the same call works on a plain terminal and in Jupyter alike.
+    """
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop is not None and running_loop.is_running():
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(lambda: asyncio.run(coro)).result()
+    return asyncio.run(coro)
 
 
 def analyst(terminal=0):
@@ -155,8 +179,7 @@ def analyst(terminal=0):
 
                 # ── MITRE ─────────────────────────────────────────────────────────────
                 elif re.match(mitre_regex, clipboard_contents):
-                    import asyncio
-                    asyncio.run(mitre.lookup(clipboard_contents.strip()))
+                    _run_coro(mitre.lookup(clipboard_contents.strip()))
 
                 # ── Epoch timestamp ───────────────────────────────────────────────────
                 elif re.match(epoch_regex, clipboard_contents):

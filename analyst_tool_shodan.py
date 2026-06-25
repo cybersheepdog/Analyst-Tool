@@ -37,6 +37,13 @@ def get_print_shodan_ip_results(shodan_headers, suspect_ip):
             Hostnames:    host.example[.]com
     """
     api     = Shodan(shodan_headers['api-key'])
+    # Honour the ssl_verify flag: when insecure mode is enabled, turn off TLS
+    # verification on the client's underlying requests Session (best effort).
+    if not get_ssl_verify_from_config():
+        try:
+            api._session.verify = False
+        except Exception:
+            pass
     results = api.host(suspect_ip)
 
     print(color.UNDERLINE + '\nShodan IP Results for:' + color.END + f" {suspect_ip}")

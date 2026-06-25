@@ -1,0 +1,396 @@
+# Analyst Tool — User Guide
+
+A clipboard-driven assistant that automates an analyst's investigation and intelligence
+gathering. You copy an indicator (an IP, hash, domain, MITRE ID, etc.) to your clipboard,
+and the tool automatically detects what kind of indicator it is, queries every configured
+intelligence service in parallel, and prints a formatted report.
+
+The tool is **passive**: it only *looks up* indicators via each service's API. It never
+submits anything that would cause an indicator to be actively scanned for the first time.
+
+This guide covers everything the program can do and how to run it in both a **Jupyter
+Notebook** and a **terminal**. If you just want to get going, see `QUICKSTART.md`.
+
+---
+
+## Table of contents
+
+1. [How it works](#how-it-works)
+2. [Installation](#installation)
+3. [Platform prerequisites (clipboard access)](#platform-prerequisites-clipboard-access)
+4. [Configuration (`config.ini`)](#configuration-configini)
+5. [Running the tool](#running-the-tool)
+   - [In a Jupyter Notebook](#in-a-jupyter-notebook)
+   - [In a terminal](#in-a-terminal)
+   - [Stopping the tool](#stopping-the-tool)
+6. [Capabilities — supported indicators](#capabilities--supported-indicators)
+7. [Intelligence services in detail](#intelligence-services-in-detail)
+8. [SSL verification & the `ssl_verify` fallback](#ssl-verification--the-ssl_verify-fallback)
+9. [Cache files the tool creates](#cache-files-the-tool-creates)
+10. [Troubleshooting](#troubleshooting)
+
+---
+
+## How it works
+
+The core is the `analyst()` function. When you start it, it:
+
+1. Reads `config.ini` and initializes every service for which you've provided credentials.
+   Services without credentials are skipped gracefully (you'll see a "not configured" note).
+2. Loads reference data (MITRE ATT&CK, LOLBAS, LOLDrivers, Tor exit nodes), using local
+   cached copies when they're fresh and only re-downloading when stale.
+3. Enters a loop that watches your clipboard. The polling interval is adaptive: about
+   **1 second** while idle and **3 seconds** right after a lookup fires.
+4. Each time the clipboard contents **change**, it runs the new value through a series of
+   checks to classify the indicator, then dispatches the matching lookups. For indicators
+   that hit multiple services (hashes, domains, URLs, IPs), all API calls run
+   **concurrently**, so the total wait is the slowest single service rather than the sum.
+
+You don't type anything into the tool. You simply **copy** an indicator from anywhere
+(a SIEM, an email, a log, a spreadsheet) and the report appears in your notebook or terminal.
+
+---
+
+## Installation
+
+You need **Python 3** and the project dependencies.
+
+```bash
+# from the project folder
+pip install -r requirements.txt
+```
+
+The dependencies are: `aiohttp`, `attackcti`, `configparser`, `elasticsearch`, `ipwhois`,
+`IPython`, `OTXv2`, `pandas`, `pycti`, `pyperclip`, `requests`, `shodan`, and `validators`.
+
+> Tip: a virtual environment (`python -m venv venv` then activate it) keeps these
+> dependencies isolated from the rest of your system.
+
+---
+
+## Platform prerequisites (clipboard access)
+
+The tool reads your clipboard through `pyperclip`. Behavior differs by OS:
+
+| Platform | What you need |
+|----------|---------------|
+| **Windows** | Works out of the box. |
+| **macOS** | Works out of the box. |
+| **Linux** | Requires a clipboard backend **and** an active graphical session (X11/Wayland). Install one of: `xclip`, `xsel`, or `wl-clipboard`. For example: `sudo apt-get install xclip` |
+
+On a headless Linux box (no display) the tool will still start and run, but it cannot read
+a clipboard, so no lookups will fire. The code handles a missing clipboard backend
+gracefully — it won't crash — but you won't get results until a clipboard is available.
+
+Both run modes (Jupyter and terminal) use the same clipboard mechanism, so these
+requirements apply equally to both.
+
+---
+
+## Configuration (`config.ini`)
+
+All credentials and options live in `config.ini` in the project folder. **Every API-backed
+service is optional.** Fill in only the ones you want to use; the rest are skipped
+automatically. The file is organized into sections:
+
+### `[GENERAL]`
+
+```ini
+[GENERAL]
+ssl_verify = true
+```
+
+| Key | Purpose |
+|-----|---------|
+| `ssl_verify` | `true` (default) verifies TLS certificates on all outbound calls. `false` enables an insecure fallback — see [SSL verification](#ssl-verification--the-ssl_verify-fallback). Leave it `true` unless you specifically need it. |
+
+### `[ABUSE_IP_DB]` — AbuseIPDB
+
+```ini
+[ABUSE_IP_DB]
+accept = application/json
+key =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `accept` | Response format header (leave as `application/json`). |
+| `key` | Your AbuseIPDB API key. Leave blank to disable the module. |
+
+### `[VIRUS_TOTAL]` — VirusTotal
+
+```ini
+[VIRUS_TOTAL]
+accept = application/json
+x-apikey =
+user =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `accept` | Response format header. |
+| `x-apikey` | Your VirusTotal API key. Leave blank to disable the module. |
+| `user` | (Optional) Your VT username. If set, the tool warns you as you approach your daily API quota (50% / 75% / 95% / 100%). |
+
+### `[ALIEN_VAULT_OTX]` — AlienVault OTX
+
+```ini
+[ALIEN_VAULT_OTX]
+otx_api_key =
+server = https://otx.alienvault.com/
+```
+
+| Key | Purpose |
+|-----|---------|
+| `otx_api_key` | Your OTX API key. Leave blank to disable. |
+| `server` | OTX server URL (default is correct for the public instance). |
+
+### `[OTX_INTEL]` — trusted OTX pulse authors
+
+```ini
+[OTX_INTEL]
+intel_list =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `intel_list` | Optional comma-separated list of OTX author usernames you trust. When a looked-up indicator appears in a pulse by one of these authors, the tool highlights it (with extra pulse detail and a "Yes/No" per author). |
+
+### `[OPEN_CTI]` — OpenCTI
+
+```ini
+[OPEN_CTI]
+opencti_api_url =
+opencti_api_token =
+opencti_base_url =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `opencti_api_url` | Your OpenCTI GraphQL API URL. |
+| `opencti_api_token` | Your OpenCTI API token. Leave blank to disable. |
+| `opencti_base_url` | Base URL used to build clickable dashboard links. |
+
+### `[C2LIVE]` — C2 tracking (Elasticsearch)
+
+```ini
+[C2LIVE]
+c2_live_url =
+c2_live_index = c20
+```
+
+| Key | Purpose |
+|-----|---------|
+| `c2_live_url` | URL of your C2Live Elasticsearch instance (e.g. `http://localhost:9200`). Leave blank to disable. |
+| `c2_live_index` | The index to query for tracked command-and-control frameworks. |
+
+### `[SHODAN]` — Shodan
+
+```ini
+[SHODAN]
+shodan_api_key =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `shodan_api_key` | Your Shodan API key. Leave blank to disable. |
+
+> Reference data services — **WhoIs**, **Tor exit-node check**, **MITRE ATT&CK**,
+> **LOLBAS**, and **LOLDrivers** — require **no API keys** and work automatically.
+
+---
+
+## Running the tool
+
+The exact same engine runs in both modes. The only difference is the `terminal` argument,
+which controls how MITRE ATT&CK output is rendered:
+
+- `analyst(terminal=0)` — **Jupyter mode (default).** MITRE descriptions render as rich
+  Markdown in the notebook output.
+- `analyst(terminal=1)` — **terminal mode.** MITRE descriptions print as plain text.
+
+### In a Jupyter Notebook
+
+1. Launch Jupyter from the project folder (`jupyter notebook` or `jupyter lab`).
+2. Open **`Analyst Tool.ipynb`**.
+3. Run the cell containing:
+
+   ```python
+   from analyst import *
+   analyst()
+   ```
+
+   (`analyst()` defaults to `terminal=0`, the correct setting for notebooks.)
+
+4. You'll see configuration messages confirming which modules are active, ending with
+   `Analyst Tool Initialized.`
+5. Now copy any supported indicator to your clipboard. The report appears in the cell's
+   output area. Copy the next indicator and the next report follows.
+
+The cell keeps running (it's a live loop) — that's expected.
+
+### In a terminal
+
+Run the provided launcher, which calls `analyst(terminal=1)` for you:
+
+```bash
+python analyst_tool.py
+```
+
+After the initialization messages, copy an indicator to your clipboard and the report
+prints to the terminal. Keep copying indicators to keep getting reports.
+
+> You can also start an interactive Python session and call it directly:
+> ```python
+> from analyst import *
+> analyst(terminal=1)
+> ```
+
+### Stopping the tool
+
+Because the tool runs a continuous monitoring loop:
+
+- **Jupyter:** interrupt the kernel (the ■ "stop" button, or `Kernel → Interrupt`).
+- **Terminal:** press `Ctrl+C`.
+
+---
+
+## Capabilities — supported indicators
+
+Copy any of the following to your clipboard and the tool detects and reports on it
+automatically. Detection is evaluated in this order (the first match wins):
+
+| # | Indicator | What triggers it | What you get |
+|---|-----------|------------------|--------------|
+| 1 | **File hash** | MD5 (32), SHA1 (40), or SHA256 (64) hex characters | VirusTotal reputation + threat classification + file info, OpenCTI record, and OTX hash report (contacted domains/IPs), run in parallel |
+| 2 | **Port or Windows Event ID** | A 1–5 digit number | A SpeedGuide port reference link **and** an Ultimate Windows Security event-ID reference link (the number can be either, so both are provided) |
+| 3 | **LOLBAS binary** | A filename ending in a known LOLBAS extension (e.g. `cmd.exe`) | Name, description, full path(s), example commands with use case/privileges/MITRE IDs, IOCs, and the LOLBAS URL |
+| 4 | **LOLDriver** | A filename matching a known malicious/vulnerable driver | Name, description, MITRE ID, command/OS/privilege/use-case, resources, and the LOLDrivers URL |
+| 5 | **Domain** | A valid domain name | VirusTotal domain report (detections, WHOIS creation date, certificate info), OpenCTI record, and OTX domain report, in parallel |
+| 6 | **URL** | A valid URL | VirusTotal URL report (detections, tags, threat names, submission dates), OpenCTI record, and OTX URL report, in parallel. URLs are displayed "defanged" (e.g. `hxxps://`) |
+| 7 | **MITRE ATT&CK ID** | A tactic `TA####`, technique `T####`, or sub-technique `T####.###` | The tactic/technique/sub-technique name, ATT&CK URL, description, and detection guidance. Renders as Markdown in Jupyter, plain text in the terminal |
+| 8 | **Epoch timestamp** | A 10–16 digit Unix timestamp (optionally with a decimal) | The human-readable date/time |
+| 9 | **OTX Pulse ID** | A 24-character hex pulse ID | Full pulse details: author, name, TLP, created/modified dates, tags, malware families, description, and references |
+| 10 | **IPv6 address** | An IPv6-formatted address | WhoIs information (organization, CIDR, range, country, associated emails) |
+| 11 | **Private IPv4** | An RFC1918 address (e.g. `10.0.0.5`, `192.168.1.1`) | A note that it's a private/RFC1918 address (no external lookups) |
+| 12 | **Public IPv4** | Any other valid IPv4 address | A full IP analysis report — see below |
+
+### Public IP analysis (the most comprehensive report)
+
+When you copy a public IPv4 address, the tool fans out to every enabled service at once:
+
+- **VirusTotal** — malicious/suspicious/phishing/malware/spam detection counts.
+- **Shodan** — last-seen date, open ports, domains, hostnames, and **Cobalt Strike beacon
+  detection** (including beacon config such as port, sleep time, watermark, and spawn-to
+  settings when available).
+- **WhoIs** — organization, CIDR, IP range, country, and associated abuse emails.
+- **Tor exit-node check** — whether the IP is a known Tor exit node.
+- **AbuseIPDB** — abuse confidence score, total reports, last reported date, distinct
+  reporters, usage type, and domain.
+- **AlienVault OTX** — related pulse count, reputation, passive DNS, and trusted-author
+  highlights.
+- **OpenCTI** — active/revoked status, malicious score, confidence, source, tags, and TLP.
+- **C2Live** — whether the IP appears in your tracked command-and-control data, and which
+  frameworks, with first/last seen dates.
+
+---
+
+## Intelligence services in detail
+
+| Service | Needs a key? | Used for | Notes |
+|---------|:-----------:|----------|-------|
+| **VirusTotal** | Yes | IPs, domains, URLs, hashes | Optional `user` enables daily-quota warnings |
+| **AbuseIPDB** | Yes | IPs | 90-day report window; warns near the 1000/day limit |
+| **AlienVault OTX** | Yes | IPs, domains, URLs, hashes, pulses | `OTX_INTEL` list highlights trusted authors |
+| **OpenCTI** | Yes | IPs, domains, URLs, hashes | Builds clickable dashboard links |
+| **Shodan** | Yes | IPs | Includes Cobalt Strike beacon detection |
+| **C2Live** | Yes (self-hosted ES) | IPs | Queries your own Elasticsearch C2 index |
+| **WhoIs** | No | IPv4 & IPv6 | Via `ipwhois`; no API key required |
+| **Tor check** | No | IPs | Exit-node list cached ~45 minutes |
+| **MITRE ATT&CK** | No | Tactic/technique IDs | Local JSON cache refreshed every 90 days |
+| **LOLBAS** | No | Living-off-the-land binaries | JSON cache refreshed every 14 days |
+| **LOLDrivers** | No | Malicious/vulnerable drivers | JSON cache refreshed every 14 days |
+
+If a service has no credentials in `config.ini`, the corresponding section of a report
+simply notes that it's "not configured" rather than failing.
+
+---
+
+## SSL verification & the `ssl_verify` fallback
+
+By default (`ssl_verify = true`) the tool verifies TLS certificates on every outbound API
+call, which is the secure and recommended setting.
+
+Some environments — corporate networks with a TLS-intercepting proxy, or services using
+self-signed certificates — cause certificate verification to fail. For those cases you can
+set:
+
+```ini
+[GENERAL]
+ssl_verify = false
+```
+
+With the flag set to `false`:
+
+- **`requests`-based lookups** (VirusTotal, AbuseIPDB, LOLBAS/LOLDrivers downloads, Tor
+  list) first try a verified connection and, **only if it raises an SSL error**, retry that
+  request once with verification disabled.
+- **API clients** (OTX, Shodan, OpenCTI, Elasticsearch) are constructed with verification
+  disabled.
+- The repetitive "insecure request" warning is silenced so it doesn't flood the output.
+
+> ⚠️ Disabling verification removes protection against man-in-the-middle attacks. Use it
+> only when you trust the network path (e.g. a known corporate proxy). Leave it `true`
+> otherwise. With the flag at its default `true`, behavior is exactly as if this option
+> did not exist.
+
+---
+
+## Cache files the tool creates
+
+To stay fast and reduce network calls, the tool writes a few cache files into the project
+folder. These are created/refreshed automatically — you don't need to manage them:
+
+| File | Contents | Refresh interval |
+|------|----------|------------------|
+| `mitre_techniques.json` | MITRE ATT&CK techniques | 90 days |
+| `enterprise_tactics.json` | MITRE ATT&CK tactics | 90 days |
+| `lolbas.json` | LOLBAS project data | 14 days |
+| `drivers.json` | LOLDrivers data | 14 days |
+| `tor_exit_nodes.txt` | Current Tor exit-node IPs | ~45 minutes |
+
+If a refresh download fails, the tool falls back to the existing cached copy so it keeps
+working offline or during a transient outage.
+
+---
+
+## Troubleshooting
+
+**Nothing happens when I copy an indicator.**
+The tool only reacts when the clipboard *changes*. Copy the value again, or copy something
+else first and then your indicator. Also confirm you saw `Analyst Tool Initialized.` at
+startup.
+
+**On Linux it starts but never reports anything.**
+You likely don't have a clipboard backend or a graphical session. Install `xclip`, `xsel`,
+or `wl-clipboard`, and run from within an X11/Wayland session.
+
+**I get SSL / certificate errors.**
+You're probably behind a TLS-intercepting proxy or talking to a self-signed service. Set
+`ssl_verify = false` under `[GENERAL]` in `config.ini` (see above), understanding the
+security trade-off.
+
+**A service shows "not configured."**
+That service has no API key in `config.ini`. Add the key to enable it, or ignore the
+message if you don't use that service.
+
+**I'm approaching or hit my API quota.**
+For VirusTotal, set `user` under `[VIRUS_TOTAL]` to get proactive quota warnings. AbuseIPDB
+warns automatically as you near its daily limit.
+
+**A domain like `first.last` triggered a lookup.**
+Domain detection can produce false positives on dotted strings. This is expected; just
+ignore the report.
+
+**The notebook cell or terminal won't stop.**
+That's the monitoring loop. Interrupt the Jupyter kernel, or press `Ctrl+C` in the terminal.

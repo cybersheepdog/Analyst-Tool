@@ -5,6 +5,12 @@ import textwrap
 import time
 import requests
 
+# Custom Imports
+# session_get honours the [GENERAL] ssl_verify flag (verify=True by default,
+# with an opt-in verify=False retry on SSLError). No circular import: the
+# utilities module does not import this one.
+from analyst_tool_utilities import session_get
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +59,7 @@ def _load_or_fetch(url: str, fname: str, threshold: float) -> str:
             return f.read()
 
     def _fetch_and_save() -> str:
-        resp = _session.get(url, timeout=15)
+        resp = session_get(_session, url, timeout=15)
         resp.raise_for_status()
         with open(fname, "w", encoding="utf-8") as f:
             f.write(resp.text)

@@ -27,7 +27,13 @@ def _get_opencti_client(url, token):
         with _opencti_cache_lock:
             # Double-checked locking
             if key not in _opencti_client_cache:
-                _opencti_client_cache[key] = OpenCTIApiClient(url, token)
+                verify = get_ssl_verify_from_config()
+                try:
+                    _opencti_client_cache[key] = OpenCTIApiClient(
+                        url, token, ssl_verify=verify)
+                except TypeError:
+                    # Older pycti without ssl_verify kwarg — preserve original call.
+                    _opencti_client_cache[key] = OpenCTIApiClient(url, token)
     return _opencti_client_cache[key]
 
 

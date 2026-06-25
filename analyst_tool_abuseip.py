@@ -45,7 +45,8 @@ def check_abuse_ip_db(suspect_ip, abuse_ip_db_headers):
     }
 
     session = _get_session()
-    abuse_ip_response = session.get(
+    abuse_ip_response = session_get(
+        session,
         abuse_ip_db_url,
         headers=abuse_ip_db_headers,
         params=querystring,

@@ -19,7 +19,15 @@ def _get_es_client(url: str) -> Elasticsearch:
     Reusing it across calls avoids repeated TCP handshakes and auth overhead.
     """
     if url not in _es_client_cache:
-        _es_client_cache[url] = Elasticsearch(url)
+        if get_ssl_verify_from_config():
+            _es_client_cache[url] = Elasticsearch(url)
+        else:
+            try:
+                _es_client_cache[url] = Elasticsearch(
+                    url, verify_certs=False, ssl_show_warn=False)
+            except TypeError:
+                # Older elasticsearch client without these kwargs — preserve original.
+                _es_client_cache[url] = Elasticsearch(url)
     return _es_client_cache[url]
 
 
