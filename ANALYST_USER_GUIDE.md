@@ -18,6 +18,10 @@ It only reacts when the clipboard **changes**, so if nothing happens, copy the
 value again. Everything is **passive** — the tool only *reads* from each service's
 API; it never submits an indicator for active scanning.
 
+You can copy **defanged** indicators straight out of a report or email —
+`hxxps://evil[.]com`, `8[.]8[.]8[.]8`, `bad(dot)com`, `user[at]evil[.]com` — and
+the tool re-fangs them automatically before looking them up.
+
 ### Reading the output
 
 - **Colors flag severity.** Red = high / notable-bad, orange = medium, green =
@@ -29,6 +33,13 @@ API; it never submits an indicator for active scanning.
   and costs no API call.
 - **A multi-user notice** (`*** MULTI-USER NOTICE: …`) appears at the top of a
   report when more than one analyst has recently checked the same indicator.
+- **A one-line verdict** opens every IP/hash/domain/URL report, e.g.
+  `VERDICT: Likely malicious — VirusTotal 12 malicious; AbuseIPDB 97%; VPN egress`.
+  It's a quick-triage summary of the detail below — red = likely malicious,
+  orange = suspicious.
+- **A `*** TEAM NOTES ***` block** appears at the very top when the indicator has
+  shared notes — durable context a teammate (or you) left, with author, date, and
+  colour-coded tags. See "Leaving notes for the team" below.
 
 ---
 
@@ -59,6 +70,18 @@ hosting.
 
 **TOR Exit Node** — `Yes` (green) means traffic from this IP may be anonymized Tor
 egress; treat sourcing/attribution accordingly.
+
+**VPN Provider** — `Yes` (highlighted in orange) means the IP falls within a known
+commercial VPN provider's network (matched against the daily-updated X4BNet list,
+no API key). It's a heuristic, IPv4 signal: a match tells you the "real" source is
+hidden behind a VPN, so weigh geolocation and attribution accordingly. Pair it with
+the WhoIs Organization/ASN, which often names the provider. A `No` doesn't fully
+rule out a VPN (residential/obscure ones may not be listed).
+
+**Datacenter/Hosting** — `Yes` (yellow) means the IP is in datacenter/hosting space
+rather than a residential/consumer ISP. Most VPNs, proxies, scanners, and C2 run
+from hosting, so this is a useful "non-residential source" signal even when the VPN
+list doesn't have a specific match.
 
 **Abuse IP DB** — community abuse reporting. The **Abuse Confidence Score** is the
 headline: **orange at ≥40%, red at ≥70%**. Also shows Total Reports, Last Reported,
@@ -122,6 +145,12 @@ shown defanged as `example[.]com`).
 
 **AlienVault OTX** — Related Pulses count and a link for deeper context.
 
+**DNS & Certificate Transparency** — the domain's resolved A/AAAA addresses (each
+with a reverse PTR), MX/NS records (when the optional `dnspython` package is
+installed), and subdomains observed in Certificate Transparency logs via crt.sh.
+Great for pivoting — the resolved IPs and sibling subdomains often expand an
+investigation quickly.
+
 > Domain detection can fire on dotted strings that aren't real domains (e.g.
 > `first.last`). If you get a domain report you didn't expect, that's why — just
 > ignore it.
@@ -180,6 +209,19 @@ Copy a 24-character hex AlienVault OTX pulse ID to pull the full pulse: author
 (highlighted if they're one of your trusted providers), name, TLP, created/modified
 dates, tags, malware families, description, and references.
 
+### 12. CVE id
+
+Copy a CVE id (e.g. `CVE-2021-44228`) to get:
+
+**CISA KEV status (shown first)** — whether the CVE is on CISA's Known Exploited
+Vulnerabilities catalog. A `YES` (red) is a strong "patch now" signal: it means the
+vulnerability is known to be exploited in the wild. When listed, you also see the
+date added, the required action, the due date, and whether it's used in known
+ransomware campaigns.
+
+**NVD details** — the CVSS base score and severity (red for High/Critical, orange
+for Medium), the attack vector, publish date, description, and reference links.
+
 ---
 
 ## Services at a glance
@@ -194,6 +236,10 @@ dates, tags, malware families, description, and references.
 | C2 Live | IP | Your tracked C2 infrastructure |
 | WhoIs | IP (v4/v6) | Ownership, range, country, abuse contact |
 | Tor check | IP | Known Tor exit node? |
+| VPN check | IP (IPv4) | In a known commercial VPN range? (X4BNet, no key) |
+| Datacenter check | IP (IPv4) | In datacenter/hosting space? (X4BNet, no key) |
+| DNS + crt.sh | Domain | Resolved IPs/PTR, MX/NS, subdomains from CT logs |
+| CVE / CISA KEV | CVE id | NVD details + known-exploited status |
 | MITRE ATT&CK | tactic/technique IDs | Definitions + detection guidance |
 | LOLBAS / LOLDrivers | filenames | How a binary/driver gets abused |
 
@@ -219,6 +265,28 @@ Need a guaranteed-fresh result? Copy the indicator with a `!` in front (e.g.
 `ANALYST_REMOTE_DB_GUIDE.md`.
 
 ---
+
+## Leaving notes for the team
+
+You can attach a note or tags to an indicator so your teammates (and future you)
+see it automatically on the next lookup. Looking things up is unchanged — only
+clipboard lines starting with `>>` are treated as commands.
+
+The easiest way: copy the short trigger `>>note 45.145.66.165`, and the tool
+prompts you to type the note:
+
+![Adding a note](graphics/screenshot_add_note.svg)
+
+And the note then appears at the top of everyone's next lookup of that indicator:
+
+![Team notes on a lookup](graphics/screenshot_team_notes.svg)
+
+You can also paste the whole thing at once (`>>note 45.145.66.165 confirmed
+phishing #c2`), annotate your **last** lookup with a bare `>>note`, add tags only
+with `>>tag 45.145.66.165 phishing c2`, or remove your own notes with
+`>>note-rm 45.145.66.165`. Inline `#tags` colour-code the indicator for everyone
+(malicious-type tags red, `fp`/`benign` green). There's also an `annotate.py` CLI.
+Full reference: `NOTE_COMMANDS.md`.
 
 ## Quick tips
 

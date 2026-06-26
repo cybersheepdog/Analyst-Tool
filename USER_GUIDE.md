@@ -137,6 +137,8 @@ sslmode = prefer
 | `user` | Identity recorded in the check log (for the "X users have checked this" notice). Blank = your OS login name. Give each analyst a unique value when sharing a remote DB. |
 | `check_window_days` | Window for the multi-user notice. Default `7`. |
 | `check_dedup_minutes` | A re-check by the **same** user within this many minutes isn't counted again. Default `60`. |
+| `command_prefix` | Marks a clipboard line as a notes/tags command rather than an indicator. Default `>>`. See [NOTE_COMMANDS.md](NOTE_COMMANDS.md). |
+| `max_notes_shown` | How many team notes to show atop a report before `(+N more)`. Default `5`. |
 | `host`, `port`, `dbname`, `db_user`, `password`, `sslmode` | PostgreSQL connection settings (remote backend only). Note the connection user is `db_user` — `user` above is the analyst identity. |
 
 See [Result caching](#result-caching-save-api-calls-local-or-remote) for full behavior. The remote backend needs the `psycopg2-binary` package (already in `requirements.txt`); the local backend needs nothing beyond the standard library.
@@ -232,8 +234,21 @@ shodan_api_key =
 |-----|---------|
 | `shodan_api_key` | Your Shodan API key. Leave blank to disable. |
 
-> Reference data services — **WhoIs**, **Tor exit-node check**, **MITRE ATT&CK**,
-> **LOLBAS**, and **LOLDrivers** — require **no API keys** and work automatically.
+### `[CVE]` — CVE / CISA KEV
+
+```ini
+[CVE]
+nvd_api_key =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `nvd_api_key` | Optional NVD API key. CVE lookups work without one at low volume; a key raises the NVD rate limit. Get one free at nvd.nist.gov. |
+
+> Reference data services — **WhoIs**, **Tor / VPN / datacenter checks**,
+> **DNS + crt.sh**, **CVE / CISA KEV**, **MITRE ATT&CK**, **LOLBAS**, and
+> **LOLDrivers** — require **no API keys** and work automatically (the optional
+> NVD key only raises a rate limit).
 
 ---
 
@@ -311,6 +326,17 @@ automatically. Detection is evaluated in this order (the first match wins):
 | 10 | **IPv6 address** | An IPv6-formatted address | WhoIs information (organization, CIDR, range, country, associated emails) |
 | 11 | **Private IPv4** | An RFC1918 address (e.g. `10.0.0.5`, `192.168.1.1`) | A note that it's a private/RFC1918 address (no external lookups) |
 | 12 | **Public IPv4** | Any other valid IPv4 address | A full IP analysis report — see below |
+| 13 | **CVE id** | `CVE-2021-44228` | NVD details (CVSS, severity, description) + whether it's on the CISA Known Exploited Vulnerabilities list |
+
+Two behaviours apply to all of the above:
+
+- **Refang on input** — defanged indicators copied from reports (e.g.
+  `hxxps://evil[.]com`, `8[.]8[.]8[.]8`, `bad(dot)com`, `user[at]evil[.]com`) are
+  automatically re-fanged before detection, so they're recognized normally.
+- **One-line verdict** — IP, hash, domain and URL reports open with a single
+  summary line, e.g. `VERDICT: Likely malicious — VirusTotal 12 malicious;
+  AbuseIPDB 97%; VPN egress; datacenter-hosted`, so you can triage at a glance
+  before reading the detail.
 
 ### Public IP analysis (the most comprehensive report)
 
@@ -322,6 +348,10 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
   settings when available).
 - **WhoIs** — organization, CIDR, IP range, country, and associated abuse emails.
 - **Tor exit-node check** — whether the IP is a known Tor exit node.
+- **VPN-provider check** — whether the IP falls within a known commercial VPN
+  network (X4BNet list, no API key). A match is highlighted in orange.
+- **Datacenter/hosting check** — whether the IP is in known datacenter/hosting
+  space (X4BNet list, no API key). Useful since most VPNs/proxies are hosted.
 - **AbuseIPDB** — abuse confidence score, total reports, last reported date, distinct
   reporters, usage type, and domain.
 - **AlienVault OTX** — related pulse count, reputation, passive DNS, and trusted-author
@@ -344,6 +374,10 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
 | **C2Live** | Yes (self-hosted ES) | IPs | Queries your own Elasticsearch C2 index |
 | **WhoIs** | No | IPv4 & IPv6 | Via `ipwhois`; no API key required |
 | **Tor check** | No | IPs | Exit-node list cached ~45 minutes |
+| **VPN check** | No | IPs (IPv4) | X4BNet VPN ranges, cached ~24 hours; heuristic |
+| **Datacenter check** | No | IPs (IPv4) | X4BNet datacenter ranges, cached ~24 hours |
+| **DNS + crt.sh** | No | Domains | A/AAAA + PTR (stdlib), MX/NS (if dnspython), subdomains from Certificate Transparency |
+| **CVE / CISA KEV** | No (optional NVD key) | CVE ids | NVD details + CISA Known Exploited Vulnerabilities status |
 | **MITRE ATT&CK** | No | Tactic/technique IDs | Local JSON cache refreshed every 90 days |
 | **LOLBAS** | No | Living-off-the-land binaries | JSON cache refreshed every 14 days |
 | **LOLDrivers** | No | Malicious/vulnerable drivers | JSON cache refreshed every 14 days |
@@ -462,6 +496,29 @@ database, so you immediately see when a colleague is already investigating the
 same indicator. Give each analyst a distinct `[CACHE] user` so the counts are
 meaningful.
 
+### Shared annotations & tags
+
+Analysts can attach durable **notes and tags** to an indicator. They're stored in
+the same database (team-wide on the remote backend) and print automatically in a
+`*** TEAM NOTES ***` block at the very top of the next lookup of that indicator:
+
+![Team notes on a lookup](graphics/screenshot_team_notes.svg)
+
+Lookups are unchanged — only clipboard lines starting with the `command_prefix`
+(default `>>`) are treated as commands:
+
+```
+>>note 45.145.66.165 confirmed phishing C2, case #1487 #phishing #c2
+>>note 45.145.66.165          (the tool then prompts you to type the note)
+>>tag 45.145.66.165 phishing c2
+>>note-rm 45.145.66.165       (removes your own notes)
+```
+
+A bare `>>note` (or `>>note <text>`) attaches to your **last** lookup. There's also
+a `python annotate.py add/list/rm` CLI for clipboard-free entry. Tags are
+colour-coded (malicious-type tags red, `fp`/`benign` green). Full reference with
+examples: [NOTE_COMMANDS.md](NOTE_COMMANDS.md).
+
 ### Forcing a fresh lookup
 
 To bypass the cache for a single indicator — for example to confirm a result
@@ -496,6 +553,9 @@ folder. These are created/refreshed automatically — you don't need to manage t
 | `lolbas.json` | LOLBAS project data | 14 days |
 | `drivers.json` | LOLDrivers data | 14 days |
 | `tor_exit_nodes.txt` | Current Tor exit-node IPs | ~45 minutes |
+| `vpn_networks.txt` | Known VPN provider IP ranges (X4BNet) | ~24 hours |
+| `datacenter_networks.txt` | Known datacenter/hosting IP ranges (X4BNet) | ~24 hours |
+| `cisa_kev.json` | CISA Known Exploited Vulnerabilities catalog | ~24 hours |
 | `analyst_cache.db` | Cached service results + usage counters + per-user check log (local backend) | Per-entry, `freshness_days` (default 7) |
 
 If a refresh download fails, the tool falls back to the existing cached copy so it keeps

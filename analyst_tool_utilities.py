@@ -1,4 +1,5 @@
 # Python Standard Library Imports
+import bisect
 import datetime
 import ipaddress
 import os
@@ -348,6 +349,268 @@ def check_tor(suspect_ip):
         print("\t{:<34} {}".format(color.GREEN + 'TOR Exit Node:' + color.END, "Yes"))
     else:
         print("\t{:<25} {}".format('TOR Exit Node:', "No"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VPN provider detection — X4BNet public VPN IP-range list (no API key required)
+#
+# Mirrors the Tor exit-node cache: load once into memory, refresh when stale.
+# Unlike the Tor list (individual IPs), this list is made of CIDR *ranges*, so
+# we keep a sorted list of (start_int, end_int) tuples (collapsed to remove
+# overlaps) and bisect on lookup — O(log n) instead of scanning every range.
+#
+# Source: https://github.com/X4BNet/lists_vpn  (output/vpn/ipv4.txt, updated daily)
+# Detection is heuristic and IPv4-only: it flags IPs in known commercial VPN
+# networks. Pair it with the WhoIs org/ASN for attribution.
+# ─────────────────────────────────────────────────────────────────────────────
+
+vpn_networks_filename = "vpn_networks.txt"
+_VPN_URL              = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv4.txt"
+_VPN_MAX_AGE_SECONDS  = 24 * 60 * 60   # 24 hours (X4BNet refreshes daily)
+
+# In-memory cache: a sorted list of (start_int, end_int) ranges + load timestamp.
+_vpn_ranges: list      = []
+_vpn_loaded_at: float  = 0.0
+_vpn_lock              = threading.Lock()
+_vpn_session           = requests.Session()
+
+
+def _parse_vpn_ranges(text: str) -> list:
+    """Parse CIDR lines into a sorted, non-overlapping list of (start, end) ints."""
+    nets = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        try:
+            net = ipaddress.ip_network(line, strict=False)
+        except ValueError:
+            continue
+        if net.version != 4:
+            continue
+        nets.append(net)
+
+    try:
+        collapsed = ipaddress.collapse_addresses(nets)
+    except Exception:
+        collapsed = nets
+
+    ranges = [(int(n.network_address), int(n.broadcast_address)) for n in collapsed]
+    ranges.sort()
+    return ranges
+
+
+def _load_vpn_ranges_from_file() -> list:
+    """Read the on-disk VPN network file and return parsed ranges."""
+    try:
+        with open(vpn_networks_filename, 'r') as f:
+            return _parse_vpn_ranges(f.read())
+    except OSError:
+        return []
+
+
+def _fetch_and_save_vpn_list() -> list:
+    """Download a fresh X4BNet VPN list, save it, and return parsed ranges."""
+    try:
+        response = session_get(_vpn_session, _VPN_URL, timeout=15)
+        if response.status_code == 200:
+            with open(vpn_networks_filename, 'w') as f:
+                f.write(response.text)
+            return _parse_vpn_ranges(response.text)
+    except Exception:
+        pass
+    return []
+
+
+def _get_vpn_ranges() -> list:
+    """Return the current (possibly cached) sorted VPN ranges.
+
+    In-memory if fresh, on-disk if the memory cache is stale but the file is
+    within the 24-hour window, otherwise fetched from the network (falling back
+    to a stale file if the fetch fails).
+    """
+    global _vpn_ranges, _vpn_loaded_at
+
+    now = time.time()
+    if now - _vpn_loaded_at < _VPN_MAX_AGE_SECONDS and _vpn_ranges:
+        return _vpn_ranges
+
+    with _vpn_lock:
+        if now - _vpn_loaded_at < _VPN_MAX_AGE_SECONDS and _vpn_ranges:
+            return _vpn_ranges
+
+        file_fresh = False
+        if os.path.isfile(vpn_networks_filename):
+            mod_time = os.path.getmtime(vpn_networks_filename)
+            file_fresh = (now - mod_time) < _VPN_MAX_AGE_SECONDS
+
+        if file_fresh:
+            new_ranges = _load_vpn_ranges_from_file()
+        else:
+            new_ranges = _fetch_and_save_vpn_list()
+            if not new_ranges and os.path.isfile(vpn_networks_filename):
+                new_ranges = _load_vpn_ranges_from_file()
+
+        _vpn_ranges = new_ranges
+        _vpn_loaded_at = now
+        return _vpn_ranges
+
+
+def is_vpn_ip(suspect_ip) -> bool:
+    """Return True if suspect_ip falls within a known VPN provider range.
+
+    Uses a bisect over the sorted, non-overlapping range list (O(log n)).
+    Returns False for non-IPv4 input or when the list is unavailable.
+    """
+    try:
+        ip_int = int(ipaddress.ip_address(suspect_ip.strip()))
+    except ValueError:
+        return False
+
+    ranges = _get_vpn_ranges()
+    if not ranges:
+        return False
+
+    # Largest range whose start <= ip_int; then confirm ip_int <= its end.
+    # The float('inf') sentinel makes every range with start == ip_int sort
+    # before the key, so the network address of a range still matches.
+    idx = bisect.bisect_right(ranges, (ip_int, float('inf'))) - 1
+    if idx >= 0:
+        start, end = ranges[idx]
+        if start <= ip_int <= end:
+            return True
+    return False
+
+
+def check_vpn(suspect_ip):
+    """Check if an IP is in a known VPN provider range and print the result.
+
+    A match is colour-coded (orange) so it stands out in the report.
+
+    Sample output:
+        VPN Provider: Yes
+    """
+    if is_vpn_ip(suspect_ip):
+        print("\t{:<34} {}".format(color.ORANGE + 'VPN Provider:' + color.END,
+                                   color.ORANGE + 'Yes' + color.END))
+    else:
+        print("\t{:<25} {}".format('VPN Provider:', "No"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Datacenter / hosting detection — X4BNet datacenter IP-range list (no API key)
+#
+# Same mechanism as the VPN check (CIDR ranges + bisect), but against the much
+# larger datacenter/hosting list. Most commercial VPNs and proxies egress from
+# datacenter space, so this is a useful "non-residential source" signal.
+# Source: https://github.com/X4BNet/lists_vpn  (output/datacenter/ipv4.txt)
+# ─────────────────────────────────────────────────────────────────────────────
+
+datacenter_networks_filename = "datacenter_networks.txt"
+_DATACENTER_URL              = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/datacenter/ipv4.txt"
+_DATACENTER_MAX_AGE_SECONDS  = 24 * 60 * 60
+
+_datacenter_ranges: list      = []
+_datacenter_loaded_at: float  = 0.0
+_datacenter_lock              = threading.Lock()
+_datacenter_session           = requests.Session()
+
+
+def _load_datacenter_ranges_from_file() -> list:
+    try:
+        with open(datacenter_networks_filename, 'r') as f:
+            return _parse_vpn_ranges(f.read())   # same CIDR parser as the VPN list
+    except OSError:
+        return []
+
+
+def _fetch_and_save_datacenter_list() -> list:
+    try:
+        response = session_get(_datacenter_session, _DATACENTER_URL, timeout=20)
+        if response.status_code == 200:
+            with open(datacenter_networks_filename, 'w') as f:
+                f.write(response.text)
+            return _parse_vpn_ranges(response.text)
+    except Exception:
+        pass
+    return []
+
+
+def _get_datacenter_ranges() -> list:
+    global _datacenter_ranges, _datacenter_loaded_at
+    now = time.time()
+    if now - _datacenter_loaded_at < _DATACENTER_MAX_AGE_SECONDS and _datacenter_ranges:
+        return _datacenter_ranges
+    with _datacenter_lock:
+        if now - _datacenter_loaded_at < _DATACENTER_MAX_AGE_SECONDS and _datacenter_ranges:
+            return _datacenter_ranges
+        file_fresh = False
+        if os.path.isfile(datacenter_networks_filename):
+            file_fresh = (now - os.path.getmtime(datacenter_networks_filename)) < _DATACENTER_MAX_AGE_SECONDS
+        if file_fresh:
+            new_ranges = _load_datacenter_ranges_from_file()
+        else:
+            new_ranges = _fetch_and_save_datacenter_list()
+            if not new_ranges and os.path.isfile(datacenter_networks_filename):
+                new_ranges = _load_datacenter_ranges_from_file()
+        _datacenter_ranges = new_ranges
+        _datacenter_loaded_at = now
+        return _datacenter_ranges
+
+
+def is_datacenter_ip(suspect_ip) -> bool:
+    """Return True if suspect_ip falls within a known datacenter/hosting range."""
+    try:
+        ip_int = int(ipaddress.ip_address(suspect_ip.strip()))
+    except ValueError:
+        return False
+    ranges = _get_datacenter_ranges()
+    if not ranges:
+        return False
+    idx = bisect.bisect_right(ranges, (ip_int, float('inf'))) - 1
+    if idx >= 0:
+        start, end = ranges[idx]
+        if start <= ip_int <= end:
+            return True
+    return False
+
+
+def check_datacenter(suspect_ip):
+    """Print whether an IP is in known datacenter/hosting space (yellow on match)."""
+    if is_datacenter_ip(suspect_ip):
+        print("\t{:<34} {}".format(color.YELLOW + 'Datacenter/Hosting:' + color.END,
+                                   color.YELLOW + 'Yes' + color.END))
+    else:
+        print("\t{:<25} {}".format('Datacenter/Hosting:', "No"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Refang — turn a defanged indicator back into a real one before detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def refang(value):
+    """Re-fang a defanged indicator so the detection regexes match it.
+
+    Handles the common defang styles analysts copy from reports/emails:
+        hxxps://evil[.]com   ->  https://evil.com
+        8[.]8[.]8[.]8        ->  8.8.8.8
+        bad(dot)domain(dot)com -> bad.domain.com
+        user[at]evil[.]com   ->  user@evil.com
+
+    Conservative: it only rewrites well-known defang tokens, so ordinary
+    indicators pass through unchanged.
+    """
+    if not value:
+        return value
+    s = value
+    s = re.sub(r'(?i)hxxp', 'http', s)                       # hxxp(s) -> http(s)
+    s = re.sub(r'\[\.\]|\(\.\)|\{\.\}', '.', s)              # [.] (.) {.}
+    s = re.sub(r'(?i)\[dot\]|\(dot\)|\{dot\}', '.', s)       # [dot] (dot) {dot}
+    s = re.sub(r'(?i)\s+dot\s+', '.', s)                     # " dot "
+    s = re.sub(r'\[@\]|\(@\)|\{@\}', '@', s)                 # [@] (@) {@}
+    s = re.sub(r'(?i)\[at\]|\(at\)|\{at\}', '@', s)          # [at] (at) {at}
+    s = s.replace('[://]', '://').replace('[:]', ':').replace('[/]', '/')
+    return s.strip()
 
 
 def get_clipboard_contents():

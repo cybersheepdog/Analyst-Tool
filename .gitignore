@@ -137,3 +137,12 @@ bin/
 CACHEDIR.TAG
 pyvenv.cfg
 share/
+
+# Analyst Tool runtime caches (auto-downloaded/generated)
+analyst_cache.db
+vpn_networks.txt
+datacenter_networks.txt
+cisa_kev.json
+tor_exit_nodes.txt
+lolbas.json
+drivers.json

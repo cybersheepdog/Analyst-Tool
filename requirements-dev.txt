@@ -1,0 +1,4 @@
+# Dependencies for running the test suite (see tests/).
+# The unit tests stub the heavy third-party packages, so only these are needed.
+pytest
+requests

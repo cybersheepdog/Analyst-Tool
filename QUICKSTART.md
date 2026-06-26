@@ -54,11 +54,12 @@ report appears automatically. Copy the next one for the next report.
 
 | Copy this | You get |
 |-----------|---------|
-| **Public IPv4** | VirusTotal, Shodan (+ Cobalt Strike beacon), WhoIs, Tor check, AbuseIPDB, OTX, OpenCTI, C2Live — all at once |
+| **Public IPv4** | VirusTotal, Shodan (+ Cobalt Strike beacon), WhoIs, Tor check, VPN + datacenter checks, AbuseIPDB, OTX, OpenCTI, C2Live — all at once |
 | **Private IPv4** | A note that it's an RFC1918 address |
 | **IPv6** | WhoIs (org, CIDR, range, country, emails) |
 | **File hash** (MD5/SHA1/SHA256) | VirusTotal + OpenCTI + OTX hash reports |
-| **Domain** | VirusTotal + OpenCTI + OTX domain reports |
+| **Domain** | VirusTotal + OpenCTI + OTX reports, plus DNS resolution + crt.sh subdomains |
+| **CVE** (`CVE-2021-44228`) | NVD details (CVSS/severity/description) + CISA KEV status |
 | **URL** | VirusTotal + OpenCTI + OTX URL reports (defanged display) |
 | **MITRE ID** (`TA0001`, `T1059`, `T1059.001`) | Name, ATT&CK link, description, detection guidance |
 | **Port / Windows Event ID** (1–5 digits) | SpeedGuide port link + Ultimate Windows Security event link |
@@ -89,6 +90,8 @@ in the last 7 days, the report shows `N users have checked this IP…`. Set a un
 
 ## Tips
 
+- **Defanged IOCs just work** — copy `hxxps://evil[.]com` or `8[.]8[.]8[.]8` and the tool re-fangs them automatically before looking them up.
+- **Every multi-service report starts with a one-line verdict** (e.g. `VERDICT: Likely malicious — VirusTotal 12 malicious; AbuseIPDB 97%; VPN egress`).
 - The tool reacts only when the clipboard **changes** — re-copy if nothing happens.
 - `analyst()` defaults to notebook mode; `analyst(terminal=1)` (used by `analyst_tool.py`)
   prints MITRE output as plain text for terminals.

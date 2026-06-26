@@ -24,6 +24,8 @@ from pyperclip import paste
 from analyst_tool_abuseip import *
 from analyst_tool_cache import build_cache_manager
 from analyst_tool_c2live import get_c2live_config, query_c2live
+from analyst_tool_cve import cve_regex, print_cve_info, get_cisa_kev, get_nvd_key_from_config
+from analyst_tool_dns import print_dns_and_crt
 from analyst_tool_lols import *
 from analyst_tool_mitre import *
 from analyst_tool_opencti import *
@@ -116,6 +118,10 @@ def analyst(terminal=0):
     lolbas = get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time)
     driver = get_loldriver_json(loldriver_url, filename2, file_age, current_time, threshold_time)
 
+    # CVE / CISA KEV: load the KEV catalog (cached) and any optional NVD key.
+    cve_kev = get_cisa_kev()
+    nvd_key = get_nvd_key_from_config()
+
     # --- MITRE loading ---
     # AsyncAnalystToolMitre handles its own cache check internally.
     # It reads from the on-disk JSON if fresh (90-day window), or calls
@@ -134,6 +140,7 @@ def analyst(terminal=0):
     print("Analyst Tool Initialized.")
 
     last_seen = get_clipboard_contents()
+    last_indicator = None  # (value, type) of the most recent lookup, for >>note
     sleep_time = 1  # adaptive: 1s idle, 3s after a lookup
 
     try:
@@ -148,6 +155,20 @@ def analyst(terminal=0):
             try:
                 if check != last_seen:
                     last_seen = check
+
+                    # ── Clipboard command (>> notes/tags) ─────────────────────
+                    # Handled here and skipped from indicator classification.
+                    if (cache.enabled and cache.command_prefix and check
+                            and check.startswith(cache.command_prefix)):
+                        try:
+                            last_indicator = _handle_command(
+                                check[len(cache.command_prefix):].strip(),
+                                cache, last_indicator)
+                        except Exception:
+                            pass
+                        time.sleep(3)
+                        continue
+
                     matched = True  # track whether a lookup fired
 
                     # Force-refresh: an indicator copied with the configured
@@ -161,9 +182,14 @@ def analyst(terminal=0):
                         clipboard_contents = clipboard_contents[
                             len(cache.force_prefix):].strip()
 
+                    # Re-fang defanged IOCs (hxxp, [.], (dot), [at]) so the
+                    # detection below matches indicators copied from reports.
+                    clipboard_contents = refang(clipboard_contents)
+
                     # ── Hash ──────────────────────────────────────────────────────────────
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
+                        last_indicator = (suspect_hash, 'hash')
                         _lookup_hash_parallel(
                             suspect_hash, virus_total_headers, vt_user,
                             opencti_headers, otx, otx_intel_list,
@@ -182,9 +208,14 @@ def analyst(terminal=0):
                     elif get_loldriver_file_endings(driver, clipboard_contents):
                         lookup_loldriver(driver, clipboard_contents)
 
+                    # ── CVE / CISA KEV ────────────────────────────────────────────────────
+                    elif re.match(cve_regex, clipboard_contents, re.IGNORECASE):
+                        print_cve_info(clipboard_contents, cve_kev, nvd_key)
+
                     # ── Domain ────────────────────────────────────────────────────────────
                     elif validators.domain(clipboard_contents) == True:
                         suspect_domain = clipboard_contents
+                        last_indicator = (suspect_domain, 'domain')
                         _lookup_domain_parallel(
                             suspect_domain, virus_total_headers, vt_user,
                             opencti_headers, otx, otx_intel_list,
@@ -194,6 +225,7 @@ def analyst(terminal=0):
                     # ── URL ───────────────────────────────────────────────────────────────
                     elif validators.url(clipboard_contents) == True:
                         suspect_url = clipboard_contents
+                        last_indicator = (suspect_url, 'url')
                         _lookup_url_parallel(
                             suspect_url, virus_total_headers,
                             opencti_headers, otx, otx_intel_list,
@@ -225,6 +257,7 @@ def analyst(terminal=0):
                     # ── Public IPv4 ───────────────────────────────────────────────────────
                     elif ipaddress.IPv4Address(clipboard_contents):
                         suspect_ip = clipboard_contents
+                        last_indicator = (suspect_ip, 'ip')
                         get_ip_analysis_results(
                             suspect_ip, virus_total_headers, abuse_ip_db_headers,
                             otx, otx_intel_list, vt_user, opencti_headers, shodan_headers,
@@ -269,6 +302,144 @@ def _run_parallel(tasks, max_workers=None):
                 print(f"\t[error in {futures[future]}]: {exc}")
 
 
+def _run_parallel_capture(tasks, max_workers=None):
+    """Run tasks concurrently but capture each one's printed output, returning
+    the captured strings in submission order.
+
+    Used to build a verdict at the top of a report: we gather all the service
+    output first (into per-task buffers via the cache's thread-local capture),
+    then the caller prints the verdict followed by the captured detail.
+    """
+    from analyst_tool_cache import _capture, install_capture
+    install_capture()  # ensure the stdout tee is present even if caching is off
+
+    if max_workers is None:
+        max_workers = len(tasks)
+
+    results = [""] * len(tasks)
+
+    def _wrap(i, task):
+        with _capture() as buf:
+            try:
+                task()
+            except Exception as exc:
+                print(f"\t[error in {getattr(task, '__name__', repr(task))}]: {exc}")
+        return i, buf.getvalue()
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_wrap, i, t) for i, t in enumerate(tasks)]
+        for future in as_completed(futures):
+            i, text = future.result()
+            results[i] = text
+    return results
+
+
+def _run_with_verdict(indicator_type, tasks, max_workers=None):
+    """Run the report tasks, print a one-line verdict, then the detail.
+
+    Falls back to the original streaming behaviour if anything in the capture/
+    verdict path fails, so a report is never lost.
+    """
+    try:
+        from analyst_tool_verdict import build_verdict
+        texts = _run_parallel_capture(tasks, max_workers)
+        combined = "".join(texts)
+        print(build_verdict(indicator_type, combined))
+        print(combined, end="")
+    except Exception:
+        _run_parallel(tasks, max_workers)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clipboard commands (notes / tags) — distinguished by the configured prefix
+# (default ">>"), so they're never mistaken for an indicator. See NOTE_COMMANDS.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _indicator_type(token):
+    """Best-effort classification of a token for note targeting."""
+    if not token:
+        return None
+    t = token.strip()
+    if re.match(hash_validation_regex, t):
+        return 'hash'
+    if re.match(cve_regex, t, re.IGNORECASE):
+        return 'cve'
+    try:
+        ipaddress.IPv4Address(t)
+        return 'ip'
+    except Exception:
+        pass
+    if re.match(ipv6_regex, t):
+        return 'ip'
+    try:
+        if validators.url(t) is True:
+            return 'url'
+    except Exception:
+        pass
+    try:
+        if validators.domain(t) is True:
+            return 'domain'
+    except Exception:
+        pass
+    return None
+
+
+def _split_target(rest, last_indicator):
+    """Decide whether `rest` starts with an explicit indicator or should attach
+    to the last lookup. Returns (indicator, indicator_type, remaining_text)."""
+    parts = rest.split(None, 1)
+    if parts and _indicator_type(parts[0]):
+        target = parts[0]
+        text = parts[1].strip() if len(parts) > 1 else ""
+        return target, _indicator_type(target), text
+    if last_indicator:
+        return last_indicator[0], last_indicator[1], rest
+    return None, None, rest
+
+
+def _handle_command(body, cache, last_indicator):
+    """Parse and run a >> command (note / tag / note-rm)."""
+    parts = body.split(None, 1)
+    if not parts:
+        print("\t[cmd] usage: >>note <indicator?> <text>  |  "
+              ">>tag <indicator> <tags>  |  >>note-rm <indicator>")
+        return last_indicator
+    verb = parts[0].lower()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    if verb == 'note':
+        target, itype, text = _split_target(rest, last_indicator)
+        if target is None:
+            print("\t[note] No indicator given and no recent lookup to attach to.")
+            return last_indicator
+        if not text:
+            try:
+                text = input("Note (#tags inline) > ").strip()
+            except Exception:
+                text = ""
+        if text:
+            cache.add_note(target, itype, text)
+    elif verb == 'tag':
+        target, itype, text = _split_target(rest, last_indicator)
+        if target and text:
+            cache.add_note(target, itype, "", extra_tags=text.split())
+        else:
+            print("\t[tag] usage: >>tag <indicator> <tag1> <tag2> ...")
+    elif verb in ('note-rm', 'noterm', 'unnote'):
+        target = rest.strip()
+        if not target and last_indicator:
+            target, itype = last_indicator
+        else:
+            itype = _indicator_type(target)
+        if target:
+            cache.remove_my_notes(target, itype)
+        else:
+            print("\t[note-rm] usage: >>note-rm <indicator>")
+    else:
+        print("\t[cmd] Unknown command '%s'. Try note / tag / note-rm." % verb)
+    return last_indicator
+
+
 def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
                            opencti_headers, otx, otx_intel_list,
                            cache=None, force_refresh=False):
@@ -278,6 +449,7 @@ def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
     cached). Lookups for unconfigured services run live (and uncached).
     """
     if cache is not None:
+        cache.print_team_notes(suspect_hash, 'hash')
         cache.record_check_and_alert(suspect_hash, 'hash')
 
     def _cc(service, fn):
@@ -318,7 +490,7 @@ def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
         else:
             _otx_live()
 
-    _run_parallel([_vt, _opencti, _otx])
+    _run_with_verdict('hash', [_vt, _opencti, _otx])
 
 
 def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
@@ -330,6 +502,7 @@ def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
     cached). Lookups for unconfigured services run live (and uncached).
     """
     if cache is not None:
+        cache.print_team_notes(suspect_domain, 'domain')
         cache.record_check_and_alert(suspect_domain, 'domain')
 
     def _cc(service, fn):
@@ -366,7 +539,11 @@ def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
         else:
             _otx_live()
 
-    _run_parallel([_vt, _opencti, _otx])
+    def _dns():
+        # DNS resolution + crt.sh — live (not an API-keyed/rate-limited service).
+        print_dns_and_crt(suspect_domain)
+
+    _run_with_verdict('domain', [_vt, _opencti, _otx, _dns])
 
 
 def _lookup_url_parallel(suspect_url, virus_total_headers,
@@ -378,6 +555,7 @@ def _lookup_url_parallel(suspect_url, virus_total_headers,
     cached). Lookups for unconfigured services run live (and uncached).
     """
     if cache is not None:
+        cache.print_team_notes(suspect_url, 'url')
         cache.record_check_and_alert(suspect_url, 'url')
 
     def _cc(service, fn):
@@ -410,7 +588,7 @@ def _lookup_url_parallel(suspect_url, virus_total_headers,
         else:
             _otx_live()
 
-    _run_parallel([_vt, _opencti, _otx])
+    _run_with_verdict('url', [_vt, _opencti, _otx])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -441,6 +619,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
     print(color.BOLD + heading + color.END)
 
     if cache is not None:
+        cache.print_team_notes(suspect_ip, 'ip')
         cache.record_check_and_alert(suspect_ip, 'ip')
 
     def _cc(service, fn):
@@ -494,6 +673,8 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         except Exception:
             pass
         check_tor(suspect_ip)
+        check_vpn(suspect_ip)
+        check_datacenter(suspect_ip)
 
     def _abuseipdb_live():
         if abuse_ip_db_headers is None:
@@ -526,7 +707,8 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         else:
             _cc('otx', _otx_live)
 
-    _run_parallel([_opencti, _vt, _shodan, _whois_tor, _abuseipdb, _otx], max_workers=6)
+    _run_with_verdict('ip', [_opencti, _vt, _shodan, _whois_tor, _abuseipdb, _otx],
+                      max_workers=6)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

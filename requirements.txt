@@ -11,6 +11,9 @@ pyperclip
 # psycopg2-binary is only required for the remote (PostgreSQL) cache backend.
 # The default local SQLite cache uses the Python standard library and needs nothing extra.
 psycopg2-binary
+# dnspython is OPTIONAL: it enables MX/NS records in the domain DNS lookup.
+# A/AAAA, PTR, and crt.sh subdomains work without it (standard library + requests).
+dnspython
 requests
 shodan
 validators

@@ -55,6 +55,9 @@ def get_cache_config_from_config(path="config.ini"):
         "user": "",
         "check_window_days": 7.0,
         "check_dedup_minutes": 60.0,
+        # shared annotations / commands
+        "command_prefix": ">>",
+        "max_notes_shown": 5,
         # remote (PostgreSQL)
         "host": "",
         "port": 5432,
@@ -108,6 +111,8 @@ def get_cache_config_from_config(path="config.ini"):
     cfg["user"] = _get("user", "")
     cfg["check_window_days"] = _float("check_window_days", 7.0)
     cfg["check_dedup_minutes"] = _float("check_dedup_minutes", 60.0)
+    cfg["command_prefix"] = _get("command_prefix", ">>")
+    cfg["max_notes_shown"] = _int("max_notes_shown", 5)
     cfg["host"] = _get("host", "")
     cfg["port"] = _int("port", 5432)
     cfg["dbname"] = _get("dbname", "")
@@ -154,6 +159,18 @@ _CREATE_CHECKS = (
     " checked_at DOUBLE PRECISION)"
 )
 
+# Shared, free-text analyst annotations/tags on an indicator. Notes do not
+# expire (unlike the check log) — they're durable team intel.
+_CREATE_ANNOTATIONS = (
+    "CREATE TABLE IF NOT EXISTS indicator_annotations ("
+    " indicator TEXT NOT NULL,"
+    " indicator_type TEXT,"
+    " username TEXT,"
+    " note TEXT,"
+    " tags TEXT,"
+    " created_at DOUBLE PRECISION)"
+)
+
 
 class SQLiteBackend:
     """Local single-file cache using the stdlib sqlite3 module."""
@@ -186,6 +203,10 @@ class SQLiteBackend:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_checks_ind "
                 "ON indicator_checks(indicator)")
+            conn.execute(_CREATE_ANNOTATIONS)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_annot_ind "
+                "ON indicator_annotations(indicator)")
             conn.commit()
 
     def get_fresh_row(self, indicator, service, fresh_secs):
@@ -285,6 +306,38 @@ class SQLiteBackend:
         distinct, total = cur.fetchone()
         return int(distinct), int(total)
 
+    def add_note(self, indicator, itype, username, note, tags):
+        now = time.time()
+        with self._write_lock:
+            conn = self._conn()
+            conn.execute(
+                "INSERT INTO indicator_annotations "
+                "(indicator, indicator_type, username, note, tags, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (indicator, itype, username, note, tags, now))
+            conn.commit()
+
+    def list_notes(self, indicator, limit=5):
+        """Return (rows, total) — newest first, capped at limit."""
+        cur = self._conn().execute(
+            "SELECT username, note, tags, created_at FROM indicator_annotations "
+            "WHERE indicator=? ORDER BY created_at DESC", (indicator,))
+        rows = cur.fetchall()
+        total = len(rows)
+        out = [{"username": r["username"], "note": r["note"],
+                "tags": r["tags"], "created_at": r["created_at"]}
+               for r in rows[:limit]]
+        return out, total
+
+    def delete_notes(self, indicator, username):
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "DELETE FROM indicator_annotations "
+                "WHERE indicator=? AND username=?", (indicator, username))
+            conn.commit()
+            return cur.rowcount
+
 
 class PostgresBackend:
     """Shared remote cache using PostgreSQL (psycopg2).
@@ -328,6 +381,10 @@ class PostgresBackend:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_checks_ind "
                 "ON indicator_checks(indicator)")
+            cur.execute(_CREATE_ANNOTATIONS)
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_annot_ind "
+                "ON indicator_annotations(indicator)")
 
     def get_fresh_row(self, indicator, service, fresh_secs):
         with self._cursor() as cur:
@@ -417,6 +474,34 @@ class PostgresBackend:
             distinct, total = cur.fetchone()
         return int(distinct), int(total)
 
+    def add_note(self, indicator, itype, username, note, tags):
+        now = time.time()
+        with self._cursor() as cur:
+            cur.execute(
+                "INSERT INTO indicator_annotations "
+                "(indicator, indicator_type, username, note, tags, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (indicator, itype, username, note, tags, now))
+
+    def list_notes(self, indicator, limit=5):
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT username, note, tags, created_at FROM indicator_annotations "
+                "WHERE indicator=%s ORDER BY created_at DESC", (indicator,))
+            rows = cur.fetchall()
+        total = len(rows)
+        out = [{"username": r[0], "note": r[1], "tags": r[2],
+                "created_at": float(r[3]) if r[3] is not None else None}
+               for r in rows[:limit]]
+        return out, total
+
+    def delete_notes(self, indicator, username):
+        with self._cursor() as cur:
+            cur.execute(
+                "DELETE FROM indicator_annotations "
+                "WHERE indicator=%s AND username=%s", (indicator, username))
+            return cur.rowcount
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Thread-aware stdout capture
@@ -485,7 +570,7 @@ class CacheManager:
 
     def __init__(self, backend, freshness_days=7.0, force_prefix="!",
                  purge_days=0.0, username="unknown", check_window_days=7.0,
-                 check_dedup_minutes=60.0):
+                 check_dedup_minutes=60.0, command_prefix=">>", max_notes_shown=5):
         self.backend = backend
         self.enabled = backend is not None
         self.freshness_seconds = max(0.0, float(freshness_days)) * 86400.0
@@ -494,6 +579,11 @@ class CacheManager:
         self.username = username or "unknown"
         self.check_window_seconds = max(0.0, float(check_window_days)) * 86400.0
         self.dedup_seconds = max(0.0, float(check_dedup_minutes)) * 60.0
+        self.command_prefix = command_prefix or ""
+        try:
+            self.max_notes_shown = max(1, int(max_notes_shown))
+        except Exception:
+            self.max_notes_shown = 5
         self._print_lock = threading.Lock()
 
     # -- helpers -------------------------------------------------------------
@@ -518,14 +608,24 @@ class CacheManager:
             if "API Queries" not in line)
 
     def _emit(self, text):
-        """Write a finished block to the real screen, atomically."""
+        """Write a finished block out, atomically.
+
+        If an outer capture is active on this thread (e.g. the report-level
+        capture used to build the top-of-report verdict), the block goes into
+        that buffer; otherwise it goes to the real screen.
+        """
         if not text:
+            return
+        block = text if text.endswith("\n") else text + "\n"
+        buf = getattr(_capture_local, "buffer", None)
+        if buf is not None:
+            buf.write(block)
             return
         out = sys.stdout
         if isinstance(out, _CaptureTee):
             out = out._original
         with self._print_lock:
-            out.write(text if text.endswith("\n") else text + "\n")
+            out.write(block)
             try:
                 out.flush()
             except Exception:
@@ -574,7 +674,10 @@ class CacheManager:
                            + (row["payload"] or ""))
                 return
 
-        # 2) Miss → run live, capturing its printed output
+        # 2) Miss → run live, capturing its printed output.
+        # Ensure the stdout tee is installed so capture works even if the caller
+        # never called startup() (e.g. in tests or embedded use).
+        install_capture()
         try:
             with _capture() as buf:
                 live_fn()
@@ -645,6 +748,95 @@ class CacheManager:
     def _emit_alert(self, msg):
         bold, yellow, end = "\033[1m", "\033[93m", "\033[0m"
         self._emit("%s%s*** MULTI-USER NOTICE: %s%s" % (bold, yellow, msg, end))
+
+    # -- shared annotations / tags ------------------------------------------
+
+    # Tags that carry meaning get colour; everything else is neutral cyan.
+    _BAD_TAGS = {"phishing", "c2", "malware", "malicious", "ransomware",
+                 "apt", "exploit", "trojan", "botnet", "suspicious"}
+    _GOOD_TAGS = {"fp", "benign", "clean", "whitelisted", "known-good", "internal"}
+
+    _CYAN, _GREEN, _RED, _BOLD, _END = ("\033[96m", "\033[92m", "\033[31m",
+                                        "\033[1m", "\033[0m")
+
+    @staticmethod
+    def _extract_tags(text):
+        """Split inline '#tag' tokens (must start with a letter, so 'case #1487'
+        is NOT a tag) out of free text. Returns (clean_text, [tags])."""
+        tags = re.findall(r'#([A-Za-z][\w-]*)', text or "")
+        clean = re.sub(r'#[A-Za-z][\w-]*', '', text or "")
+        clean = re.sub(r'\s{2,}', ' ', clean).strip(" ,")
+        return clean, tags
+
+    def _tag_pill(self, tag):
+        t = tag.lower()
+        if t in self._BAD_TAGS:
+            c = self._RED
+        elif t in self._GOOD_TAGS:
+            c = self._GREEN
+        else:
+            c = self._CYAN
+        return c + "[" + tag + "]" + self._END
+
+    def add_note(self, indicator, indicator_type, note, extra_tags=None):
+        """Save a note (with inline #tags) for an indicator and confirm."""
+        if not self.enabled:
+            print("\t[note] Notes need the cache enabled ([CACHE] in config.ini).")
+            return
+        key = self._norm(indicator, indicator_type)
+        clean, inline_tags = self._extract_tags(note or "")
+        tags = list(dict.fromkeys(
+            t.lower() for t in (inline_tags + list(extra_tags or [])) if t))
+        try:
+            self.backend.add_note(key, indicator_type, self.username,
+                                  clean, " ".join(tags))
+        except Exception as exc:
+            print("\t[note] Could not save: %s" % exc)
+            return
+        self._emit(self._GREEN + "[+] Note saved for %s by %s"
+                   % (indicator, self.username) + self._END)
+        if tags:
+            self._emit("\ttags: " + " ".join(self._tag_pill(t) for t in tags))
+        if clean:
+            self._emit('\t"' + clean + '"')
+
+    def print_team_notes(self, indicator, indicator_type):
+        """Print the TEAM NOTES block for an indicator, if it has any."""
+        if not self.enabled:
+            return
+        key = self._norm(indicator, indicator_type)
+        try:
+            notes, total = self.backend.list_notes(key, self.max_notes_shown)
+        except Exception:
+            return
+        if not notes:
+            return
+        self._emit(self._BOLD + self._CYAN + "*** TEAM NOTES (%d) ***" % total + self._END)
+        for n in notes:
+            if n.get("note"):
+                self._emit("\t" + n["note"])
+            when = time.strftime('%Y-%m-%d',
+                                 time.localtime(n.get("created_at") or time.time()))
+            meta = "\t\t%s · %s" % (n.get("username") or "unknown", when)
+            tg = (n.get("tags") or "").split()
+            if tg:
+                meta += " · " + " ".join(self._tag_pill(t) for t in tg)
+            self._emit(meta)
+        if total > len(notes):
+            self._emit("\t(+%d more)" % (total - len(notes)))
+
+    def remove_my_notes(self, indicator, indicator_type):
+        """Delete the current user's notes for an indicator."""
+        if not self.enabled:
+            return
+        key = self._norm(indicator, indicator_type)
+        try:
+            removed = self.backend.delete_notes(key, self.username)
+        except Exception as exc:
+            print("\t[note] Could not remove: %s" % exc)
+            return
+        self._emit(self._GREEN + "[+] Removed %d of your note(s) for %s"
+                   % (removed, indicator) + self._END)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -718,5 +910,7 @@ def build_cache_manager(path="config.ini"):
         purge_days=cfg["purge_days"],
         username=username,
         check_window_days=cfg["check_window_days"],
-        check_dedup_minutes=cfg["check_dedup_minutes"])
+        check_dedup_minutes=cfg["check_dedup_minutes"],
+        command_prefix=cfg["command_prefix"],
+        max_notes_shown=cfg["max_notes_shown"])
     return manager
