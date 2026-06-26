@@ -69,6 +69,24 @@ report appears automatically. Copy the next one for the next report.
 
 ---
 
+## Saving API calls (caching)
+
+Lookups for VirusTotal, AbuseIPDB, Shodan, and OTX are **cached** so repeat
+lookups within 7 days are served from a database instead of spending an API call.
+It's **on by default** using a local SQLite file (`analyst_cache.db`) — nothing to
+set up.
+
+- **Share across a team:** set `[CACHE] backend = remote` and fill in the
+  PostgreSQL `host`/`dbname`/`db_user`/`password` so everyone saves calls together.
+- **Force a fresh lookup:** copy the indicator with a `!` in front, e.g. `!8.8.8.8`.
+- **See savings:** startup prints `API calls saved so far: N`.
+- **Turn it off:** set `[CACHE] enabled = false`.
+
+**Multi-user notice:** the DB also logs who checked each indicator. If more than
+one analyst (or the same one in sessions >60 min apart) has checked an indicator
+in the last 7 days, the report shows `N users have checked this IP…`. Set a unique
+`[CACHE] user` per analyst when sharing a remote DB.
+
 ## Tips
 
 - The tool reacts only when the clipboard **changes** — re-copy if nothing happens.

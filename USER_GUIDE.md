@@ -26,8 +26,9 @@ Notebook** and a **terminal**. If you just want to get going, see `QUICKSTART.md
 6. [Capabilities — supported indicators](#capabilities--supported-indicators)
 7. [Intelligence services in detail](#intelligence-services-in-detail)
 8. [SSL verification & the `ssl_verify` fallback](#ssl-verification--the-ssl_verify-fallback)
-9. [Cache files the tool creates](#cache-files-the-tool-creates)
-10. [Troubleshooting](#troubleshooting)
+9. [Result caching (save API calls, local or remote)](#result-caching-save-api-calls-local-or-remote)
+10. [Cache files the tool creates](#cache-files-the-tool-creates)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -103,6 +104,42 @@ ssl_verify = true
 | Key | Purpose |
 |-----|---------|
 | `ssl_verify` | `true` (default) verifies TLS certificates on all outbound calls. `false` enables an insecure fallback — see [SSL verification](#ssl-verification--the-ssl_verify-fallback). Leave it `true` unless you specifically need it. |
+
+### `[CACHE]` — result caching
+
+```ini
+[CACHE]
+enabled = true
+backend = local
+freshness_days = 7
+db_path = analyst_cache.db
+force_prefix = !
+purge_days = 0
+user =
+check_window_days = 7
+check_dedup_minutes = 60
+host =
+port = 5432
+dbname =
+db_user =
+password =
+sslmode = prefer
+```
+
+| Key | Purpose |
+|-----|---------|
+| `enabled` | `true` (default) caches lookups; `false` disables caching entirely (every lookup is live). |
+| `backend` | `local` uses a SQLite file (single user); `remote` uses a shared PostgreSQL server (a team saves calls together). |
+| `freshness_days` | A cached result younger than this many days is reused instead of re-querying the API. Default `7`. |
+| `db_path` | SQLite database file (local backend only). |
+| `force_prefix` | Copy an indicator with this prefix to force a fresh lookup, e.g. `!8.8.8.8`. Default `!`. |
+| `purge_days` | Delete cached entries older than this many days at startup. `0` = never purge. |
+| `user` | Identity recorded in the check log (for the "X users have checked this" notice). Blank = your OS login name. Give each analyst a unique value when sharing a remote DB. |
+| `check_window_days` | Window for the multi-user notice. Default `7`. |
+| `check_dedup_minutes` | A re-check by the **same** user within this many minutes isn't counted again. Default `60`. |
+| `host`, `port`, `dbname`, `db_user`, `password`, `sslmode` | PostgreSQL connection settings (remote backend only). Note the connection user is `db_user` — `user` above is the analyst identity. |
+
+See [Result caching](#result-caching-save-api-calls-local-or-remote) for full behavior. The remote backend needs the `psycopg2-binary` package (already in `requirements.txt`); the local backend needs nothing beyond the standard library.
 
 ### `[ABUSE_IP_DB]` — AbuseIPDB
 
@@ -346,6 +383,107 @@ With the flag set to `false`:
 
 ---
 
+## Result caching (save API calls, local or remote)
+
+To conserve limited API quotas, the tool can cache the result of each external,
+rate-limited service and reuse it instead of spending another API call. This is
+controlled by the `[CACHE]` section and is **on by default with the local
+backend**.
+
+### Which services are cached
+
+VirusTotal, AbuseIPDB, Shodan, and AlienVault OTX — the external, rate-limited
+APIs. OpenCTI and C2Live (self-hosted), WhoIs, Tor, MITRE, and LOLBAS/LOLDrivers
+are not cached this way (they're either local, self-hosted, or already cached on
+disk).
+
+### How it works
+
+For each cached service, a result is stored per indicator (IP, hash, domain, or
+URL) together with a timestamp and usage counters:
+
+1. When you copy an indicator, the tool checks the database first for each
+   applicable service.
+2. If a stored result exists and is **younger than `freshness_days`** (default 7),
+   it's replayed — identical to a live result, prefixed with a small
+   `(cached result — N days old, M lookups)` note — and **no API call is made**.
+3. If there's no entry or it's stale, the tool does the live API call, shows the
+   result, and saves it for next time.
+
+Because the cache key is the indicator plus the service, a fresh AbuseIPDB entry
+can be served from cache while VirusTotal is queried live, for example.
+
+### Local vs. remote
+
+- **`backend = local`** (default): a single SQLite file (`db_path`,
+  `analyst_cache.db` by default). Zero setup; ideal for one analyst. Every
+  re-lookup within the freshness window is a saved API call.
+- **`backend = remote`**: a shared PostgreSQL database. Multiple analysts point
+  at the same server, so a lookup one person already paid for is free for
+  everyone else. Set `host`, `port`, `dbname`, `user`, `password`, and `sslmode`.
+
+The schema is created automatically on first run for either backend.
+
+### Usage tracking
+
+Every entry records `lookup_count` (total requests), `cache_hits` (times served
+from cache = **API calls saved**), and `api_calls` (live calls made). At startup
+the tool prints a one-line summary, e.g. `Cache enabled as user 'bob' (128
+entries). API calls saved so far: 412.`
+
+A cached result looks identical to a live one, with a small dim marker:
+
+![Cached result example](graphics/screenshot_cached_hit.svg)
+
+### Multi-user check tracking ("X users have checked this")
+
+The database also logs **who** looked up each indicator. When more than one
+analyst — or the same analyst in separate sessions more than
+`check_dedup_minutes` apart — has checked the same indicator within
+`check_window_days`, the tool prints a heads-up notice at the top of the report:
+
+![Multi-user notice example](graphics/screenshot_multiuser_notice.svg)
+
+How the counting works:
+
+- Each check is logged with the analyst's identity (the `[CACHE] user` value, or
+  the OS login name if blank) and a timestamp.
+- A repeat check of the same indicator by the **same** user within
+  `check_dedup_minutes` (default 60) is **not** counted again — this stops rapid
+  re-copies of the same clipboard value from inflating the number.
+- The same user checking again **after** that window counts as a new check.
+- Over the last `check_window_days` (default 7), if there is more than one
+  qualifying check, the notice appears. If two or more **distinct** users are
+  involved it reads `N users have checked this <type> …`; if it's one user across
+  multiple sessions it reads `This <type> has been checked N times …`.
+
+This is most valuable with the **remote** backend: everyone on the team shares one
+database, so you immediately see when a colleague is already investigating the
+same indicator. Give each analyst a distinct `[CACHE] user` so the counts are
+meaningful.
+
+### Forcing a fresh lookup
+
+To bypass the cache for a single indicator — for example to confirm a result
+hasn't changed — copy it with the `force_prefix` (default `!`) in front, e.g.
+`!8.8.8.8`. That lookup goes live and refreshes the stored entry.
+
+### Resilience
+
+If a live API call fails (network/outage) but an older cached result exists, the
+tool falls back to that result and labels it `(stale cached result — live lookup
+failed)` rather than showing nothing. If the database itself can't be reached,
+caching simply turns off and all lookups run live — the tool never breaks because
+of the cache.
+
+### Housekeeping
+
+Set `purge_days` to a non-zero value to delete entries older than that many days
+at startup. Leave it `0` to keep everything (stale entries are simply re-queried
+when looked up, so unbounded growth is the only downside).
+
+---
+
 ## Cache files the tool creates
 
 To stay fast and reduce network calls, the tool writes a few cache files into the project
@@ -358,6 +496,7 @@ folder. These are created/refreshed automatically — you don't need to manage t
 | `lolbas.json` | LOLBAS project data | 14 days |
 | `drivers.json` | LOLDrivers data | 14 days |
 | `tor_exit_nodes.txt` | Current Tor exit-node IPs | ~45 minutes |
+| `analyst_cache.db` | Cached service results + usage counters + per-user check log (local backend) | Per-entry, `freshness_days` (default 7) |
 
 If a refresh download fails, the tool falls back to the existing cached copy so it keeps
 working offline or during a transient outage.
@@ -394,3 +533,17 @@ ignore the report.
 
 **The notebook cell or terminal won't stop.**
 That's the monitoring loop. Interrupt the Jupyter kernel, or press `Ctrl+C` in the terminal.
+
+**A result looks out of date / I want to re-query.**
+The result is cached and still within the freshness window. Copy the indicator with
+the force prefix (default `!`), e.g. `!8.8.8.8`, to force a fresh lookup, or lower
+`freshness_days` in `config.ini`.
+
+**The remote cache won't connect.**
+Confirm `psycopg2-binary` is installed and that `host`, `port`, `dbname`, `user`,
+`password`, and `sslmode` under `[CACHE]` are correct and the server is reachable. If
+it can't connect, the tool prints a notice and falls back to live lookups (no caching).
+
+**I want to turn caching off.**
+Set `enabled = false` under `[CACHE]`. Every lookup will then be live, exactly as
+before the cache existed.

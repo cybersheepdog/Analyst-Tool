@@ -8,6 +8,9 @@ OTXv2
 pandas
 pycti
 pyperclip
+# psycopg2-binary is only required for the remote (PostgreSQL) cache backend.
+# The default local SQLite cache uses the Python standard library and needs nothing extra.
+psycopg2-binary
 requests
 shodan
 validators

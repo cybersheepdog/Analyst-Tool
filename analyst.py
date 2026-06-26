@@ -22,6 +22,7 @@ from pyperclip import paste
 
 # Custom Imports
 from analyst_tool_abuseip import *
+from analyst_tool_cache import build_cache_manager
 from analyst_tool_c2live import get_c2live_config, query_c2live
 from analyst_tool_lols import *
 from analyst_tool_mitre import *
@@ -123,102 +124,127 @@ def analyst(terminal=0):
     mitre_tactics    = mitre.mitre_tactics
     mitre_techniques = mitre.mitre_techniques
 
+    # --- Result cache ---
+    # Serves VirusTotal/AbuseIPDB/Shodan/OTX results from a local SQLite (or
+    # shared PostgreSQL) DB when they're younger than freshness_days, to save
+    # API calls. Disabled/misconfigured caches degrade to live lookups.
+    cache = build_cache_manager()
+    cache.startup()
+
     print("Analyst Tool Initialized.")
 
-    clipboard_contents = get_clipboard_contents()
+    last_seen = get_clipboard_contents()
     sleep_time = 1  # adaptive: 1s idle, 3s after a lookup
 
-    while True:
-        try:
-            check = get_clipboard_contents()
-        except TypeError as e:
-            print('\n\n\n' + str(e))
-            time.sleep(sleep_time)
-            continue
+    try:
+        while True:
+            try:
+                check = get_clipboard_contents()
+            except TypeError as e:
+                print('\n\n\n' + str(e))
+                time.sleep(sleep_time)
+                continue
 
-        try:
-            if check != clipboard_contents:
-                clipboard_contents = check
-                matched = True  # track whether a lookup fired
+            try:
+                if check != last_seen:
+                    last_seen = check
+                    matched = True  # track whether a lookup fired
 
-                # ── Hash ──────────────────────────────────────────────────────────────
-                if re.match(hash_validation_regex, clipboard_contents):
-                    suspect_hash = clipboard_contents
-                    _lookup_hash_parallel(
-                        suspect_hash, virus_total_headers, vt_user,
-                        opencti_headers, otx, otx_intel_list
-                    )
+                    # Force-refresh: an indicator copied with the configured
+                    # prefix (default "!") bypasses the cache for that lookup.
+                    force_refresh = False
+                    clipboard_contents = check
+                    if (cache.enabled and clipboard_contents
+                            and cache.force_prefix
+                            and clipboard_contents.startswith(cache.force_prefix)):
+                        force_refresh = True
+                        clipboard_contents = clipboard_contents[
+                            len(cache.force_prefix):].strip()
 
-                # ── Port / Windows Event ID ───────────────────────────────────────────
-                elif re.match(port_wid_validation_regex, clipboard_contents):
-                    is_port_or_weivd(clipboard_contents)
+                    # ── Hash ──────────────────────────────────────────────────────────────
+                    if re.match(hash_validation_regex, clipboard_contents):
+                        suspect_hash = clipboard_contents
+                        _lookup_hash_parallel(
+                            suspect_hash, virus_total_headers, vt_user,
+                            opencti_headers, otx, otx_intel_list,
+                            cache=cache, force_refresh=force_refresh
+                        )
 
-                # ── LOLBas ────────────────────────────────────────────────────────────
-                elif get_lolbas_file_endings(lolbas, clipboard_contents):
-                    lookup_lolbas(lolbas, clipboard_contents)
+                    # ── Port / Windows Event ID ───────────────────────────────────────────
+                    elif re.match(port_wid_validation_regex, clipboard_contents):
+                        is_port_or_weivd(clipboard_contents)
 
-                # ── LOLDriver ─────────────────────────────────────────────────────────
-                elif get_loldriver_file_endings(driver, clipboard_contents):
-                    lookup_loldriver(driver, clipboard_contents)
+                    # ── LOLBas ────────────────────────────────────────────────────────────
+                    elif get_lolbas_file_endings(lolbas, clipboard_contents):
+                        lookup_lolbas(lolbas, clipboard_contents)
 
-                # ── Domain ────────────────────────────────────────────────────────────
-                elif validators.domain(clipboard_contents) == True:
-                    suspect_domain = clipboard_contents
-                    _lookup_domain_parallel(
-                        suspect_domain, virus_total_headers, vt_user,
-                        opencti_headers, otx, otx_intel_list
-                    )
+                    # ── LOLDriver ─────────────────────────────────────────────────────────
+                    elif get_loldriver_file_endings(driver, clipboard_contents):
+                        lookup_loldriver(driver, clipboard_contents)
 
-                # ── URL ───────────────────────────────────────────────────────────────
-                elif validators.url(clipboard_contents) == True:
-                    suspect_url = clipboard_contents
-                    _lookup_url_parallel(
-                        suspect_url, virus_total_headers,
-                        opencti_headers, otx, otx_intel_list
-                    )
+                    # ── Domain ────────────────────────────────────────────────────────────
+                    elif validators.domain(clipboard_contents) == True:
+                        suspect_domain = clipboard_contents
+                        _lookup_domain_parallel(
+                            suspect_domain, virus_total_headers, vt_user,
+                            opencti_headers, otx, otx_intel_list,
+                            cache=cache, force_refresh=force_refresh
+                        )
 
-                # ── MITRE ─────────────────────────────────────────────────────────────
-                elif re.match(mitre_regex, clipboard_contents):
-                    _run_coro(mitre.lookup(clipboard_contents.strip()))
+                    # ── URL ───────────────────────────────────────────────────────────────
+                    elif validators.url(clipboard_contents) == True:
+                        suspect_url = clipboard_contents
+                        _lookup_url_parallel(
+                            suspect_url, virus_total_headers,
+                            opencti_headers, otx, otx_intel_list,
+                            cache=cache, force_refresh=force_refresh
+                        )
 
-                # ── Epoch timestamp ───────────────────────────────────────────────────
-                elif re.match(epoch_regex, clipboard_contents):
-                    print_converted_epoch_timestamp(clipboard_contents)
+                    # ── MITRE ─────────────────────────────────────────────────────────────
+                    elif re.match(mitre_regex, clipboard_contents):
+                        _run_coro(mitre.lookup(clipboard_contents.strip()))
 
-                # ── OTX Pulse ID ──────────────────────────────────────────────────────
-                elif re.match(otx_pulse_regex, clipboard_contents):
-                    suspect_pulse = clipboard_contents
-                    print_otx_pulse_info(suspect_pulse, otx, otx_intel_list)
+                    # ── Epoch timestamp ───────────────────────────────────────────────────
+                    elif re.match(epoch_regex, clipboard_contents):
+                        print_converted_epoch_timestamp(clipboard_contents)
 
-                # ── IPv6 ──────────────────────────────────────────────────────────────
-                elif re.match(ipv6_regex, clipboard_contents):
-                    suspect_ip = clipboard_contents.strip()
-                    ip_whois(suspect_ip)
+                    # ── OTX Pulse ID ──────────────────────────────────────────────────────
+                    elif re.match(otx_pulse_regex, clipboard_contents):
+                        suspect_pulse = clipboard_contents
+                        print_otx_pulse_info(suspect_pulse, otx, otx_intel_list)
 
-                # ── Private IPv4 ──────────────────────────────────────────────────────
-                elif ipaddress.IPv4Address(clipboard_contents).is_private:
-                    print('\n\n\nThis is an RFC1918 IP Address' + '\n\n\n')
+                    # ── IPv6 ──────────────────────────────────────────────────────────────
+                    elif re.match(ipv6_regex, clipboard_contents):
+                        suspect_ip = clipboard_contents.strip()
+                        ip_whois(suspect_ip)
 
-                # ── Public IPv4 ───────────────────────────────────────────────────────
-                elif ipaddress.IPv4Address(clipboard_contents):
-                    suspect_ip = clipboard_contents
-                    get_ip_analysis_results(
-                        suspect_ip, virus_total_headers, abuse_ip_db_headers,
-                        otx, otx_intel_list, vt_user, opencti_headers, shodan_headers
-                    )
-                    query_c2live(suspect_ip, c2live_headers)
+                    # ── Private IPv4 ──────────────────────────────────────────────────────
+                    elif ipaddress.IPv4Address(clipboard_contents).is_private:
+                        print('\n\n\nThis is an RFC1918 IP Address' + '\n\n\n')
 
+                    # ── Public IPv4 ───────────────────────────────────────────────────────
+                    elif ipaddress.IPv4Address(clipboard_contents):
+                        suspect_ip = clipboard_contents
+                        get_ip_analysis_results(
+                            suspect_ip, virus_total_headers, abuse_ip_db_headers,
+                            otx, otx_intel_list, vt_user, opencti_headers, shodan_headers,
+                            cache=cache, force_refresh=force_refresh
+                        )
+                        query_c2live(suspect_ip, c2live_headers)
+
+                    else:
+                        matched = False
+
+                    sleep_time = 3 if matched else 1
                 else:
-                    matched = False
+                    sleep_time = 1
 
-                sleep_time = 3 if matched else 1
-            else:
+            except Exception:
                 sleep_time = 1
 
-        except Exception:
-            sleep_time = 1
-
-        time.sleep(sleep_time)
+            time.sleep(sleep_time)
+    finally:
+        cache.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -244,15 +270,34 @@ def _run_parallel(tasks, max_workers=None):
 
 
 def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
-                           opencti_headers, otx, otx_intel_list):
-    """Fire VT, OpenCTI, and OTX hash lookups concurrently."""
+                           opencti_headers, otx, otx_intel_list,
+                           cache=None, force_refresh=False):
+    """Fire VT, OpenCTI, and OTX hash lookups concurrently.
 
-    def _vt():
+    VT and OTX results are served from the cache when fresh (OpenCTI is not
+    cached). Lookups for unconfigured services run live (and uncached).
+    """
+    if cache is not None:
+        cache.record_check_and_alert(suspect_hash, 'hash')
+
+    def _cc(service, fn):
+        if cache is None:
+            fn()
+        else:
+            cache.cached_call(suspect_hash, 'hash', service, fn, force_refresh)
+
+    def _vt_live():
         if virus_total_headers:
             print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user)
         else:
             print(color.UNDERLINE + '\nVirusTotal:' + color.END)
             print('\tVirusTotal not configured.')
+
+    def _vt():
+        if virus_total_headers:
+            _cc('virustotal', _vt_live)
+        else:
+            _vt_live()
 
     def _opencti():
         if opencti_headers:
@@ -263,19 +308,44 @@ def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
             else:
                 print_opencti_hash_results(results, suspect_hash, opencti_headers)
 
-    def _otx():
+    def _otx_live():
         if otx:
             print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list)
+
+    def _otx():
+        if otx:
+            _cc('otx', _otx_live)
+        else:
+            _otx_live()
 
     _run_parallel([_vt, _opencti, _otx])
 
 
 def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
-                             opencti_headers, otx, otx_intel_list):
-    """Fire VT, OpenCTI, and OTX domain lookups concurrently."""
+                             opencti_headers, otx, otx_intel_list,
+                             cache=None, force_refresh=False):
+    """Fire VT, OpenCTI, and OTX domain lookups concurrently.
+
+    VT and OTX results are served from the cache when fresh (OpenCTI is not
+    cached). Lookups for unconfigured services run live (and uncached).
+    """
+    if cache is not None:
+        cache.record_check_and_alert(suspect_domain, 'domain')
+
+    def _cc(service, fn):
+        if cache is None:
+            fn()
+        else:
+            cache.cached_call(suspect_domain, 'domain', service, fn, force_refresh)
+
+    def _vt_live():
+        print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
 
     def _vt():
-        print_vt_domain_report(suspect_domain, virus_total_headers, vt_user)
+        if virus_total_headers:
+            _cc('virustotal', _vt_live)
+        else:
+            _vt_live()
 
     def _opencti():
         if opencti_headers:
@@ -286,28 +356,59 @@ def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
             else:
                 print_opencti_domain_results(results, opencti_headers)
 
-    def _otx():
+    def _otx_live():
         if otx:
             print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list)
+
+    def _otx():
+        if otx:
+            _cc('otx', _otx_live)
+        else:
+            _otx_live()
 
     _run_parallel([_vt, _opencti, _otx])
 
 
 def _lookup_url_parallel(suspect_url, virus_total_headers,
-                          opencti_headers, otx, otx_intel_list):
-    """Fire VT, OpenCTI, and OTX URL lookups concurrently."""
+                          opencti_headers, otx, otx_intel_list,
+                          cache=None, force_refresh=False):
+    """Fire VT, OpenCTI, and OTX URL lookups concurrently.
+
+    VT and OTX results are served from the cache when fresh (OpenCTI is not
+    cached). Lookups for unconfigured services run live (and uncached).
+    """
+    if cache is not None:
+        cache.record_check_and_alert(suspect_url, 'url')
+
+    def _cc(service, fn):
+        if cache is None:
+            fn()
+        else:
+            cache.cached_call(suspect_url, 'url', service, fn, force_refresh)
+
+    def _vt_live():
+        print_virus_total_url_report(virus_total_headers, suspect_url)
 
     def _vt():
-        print_virus_total_url_report(virus_total_headers, suspect_url)
+        if virus_total_headers:
+            _cc('virustotal', _vt_live)
+        else:
+            _vt_live()
 
     def _opencti():
         if opencti_headers:
             results = query_opencti(opencti_headers, suspect_url)
             print_opencti_url_results(results, suspect_url)
 
-    def _otx():
+    def _otx_live():
         if otx:
             print_alien_vault_url_results(otx, suspect_url, otx_intel_list)
+
+    def _otx():
+        if otx:
+            _cc('otx', _otx_live)
+        else:
+            _otx_live()
 
     _run_parallel([_vt, _opencti, _otx])
 
@@ -317,7 +418,8 @@ def _lookup_url_parallel(suspect_url, virus_total_headers,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers,
-                             otx, otx_intel_list, vt_user, opencti_headers, shodan_headers):
+                             otx, otx_intel_list, vt_user, opencti_headers, shodan_headers,
+                             cache=None, force_refresh=False):
     """ A function to call the various IP modules concurrently and display them.
 
     All enabled services (VirusTotal, Shodan, WhoIs, Tor check, AbuseIPDB,
@@ -338,6 +440,15 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
     heading = "\n\n\nIP Analysis Report for " + suspect_ip + ":"
     print(color.BOLD + heading + color.END)
 
+    if cache is not None:
+        cache.record_check_and_alert(suspect_ip, 'ip')
+
+    def _cc(service, fn):
+        if cache is None:
+            fn()
+        else:
+            cache.cached_call(suspect_ip, 'ip', service, fn, force_refresh)
+
     def _opencti():
         if opencti_headers is None:
             print(color.UNDERLINE + '\nOpenCTI Info:' + color.END)
@@ -350,19 +461,31 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
             else:
                 print_opencti_ip_results(results, suspect_ip, countries, opencti_headers)
 
-    def _vt():
+    def _vt_live():
         if virus_total_headers is None:
             print(color.UNDERLINE + '\nVirusTotal Detections:' + color.END)
             print('\tVirus Total not configured.')
         else:
             get_vt_ip_results(suspect_ip, virus_total_headers, vt_user)
 
-    def _shodan():
+    def _vt():
+        if virus_total_headers is None:
+            _vt_live()
+        else:
+            _cc('virustotal', _vt_live)
+
+    def _shodan_live():
         if shodan_headers is None:
             print(color.UNDERLINE + '\n Shodan:' + color.END)
             print('\tShodan not configured.')
         else:
             get_print_shodan_ip_results(shodan_headers, suspect_ip)
+
+    def _shodan():
+        if shodan_headers is None:
+            _shodan_live()
+        else:
+            _cc('shodan', _shodan_live)
 
     def _whois_tor():
         print(color.UNDERLINE + '\nIP Information:' + color.END)
@@ -372,22 +495,36 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
             pass
         check_tor(suspect_ip)
 
-    def _abuseipdb():
+    def _abuseipdb_live():
         if abuse_ip_db_headers is None:
             print(color.UNDERLINE + '\nAbuse IP DB:' + color.END)
             print('\tAbuse IP DB not configured.')
         else:
+            # Let errors propagate so a failed call is NOT cached; the wrapper
+            # below prints the friendly message and stale-while-error applies.
+            check_abuse_ip_db(suspect_ip, abuse_ip_db_headers)
+
+    def _abuseipdb():
+        if abuse_ip_db_headers is None:
+            _abuseipdb_live()
+        else:
             try:
-                check_abuse_ip_db(suspect_ip, abuse_ip_db_headers)
+                _cc('abuseipdb', _abuseipdb_live)
             except Exception:
                 print('\tIssue with Abuse IP DB API.')
 
-    def _otx():
+    def _otx_live():
         if otx is None:
             print(color.UNDERLINE + '\nAlienVault OTX:' + color.END)
             print('\tAlienVault not configured.')
         else:
             print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list)
+
+    def _otx():
+        if otx is None:
+            _otx_live()
+        else:
+            _cc('otx', _otx_live)
 
     _run_parallel([_opencti, _vt, _shodan, _whois_tor, _abuseipdb, _otx], max_workers=6)
 
@@ -451,3 +588,5 @@ def ip_whois(suspect_ip):
 
     if company_count == 0:
         print('\t{:<25} {}'.format('ASN Description:', res['asn_description']))
+
+# End of analyst.py
