@@ -72,12 +72,15 @@ hosting.
 **TOR Exit Node** — `Yes` (green) means traffic from this IP may be anonymized Tor
 egress; treat sourcing/attribution accordingly.
 
-**VPN Provider** — `Yes` (highlighted in orange) means the IP falls within a known
-commercial VPN provider's network (matched against the daily-updated X4BNet list,
-no API key). It's a heuristic, IPv4 signal: a match tells you the "real" source is
-hidden behind a VPN, so weigh geolocation and attribution accordingly. Pair it with
-the WhoIs Organization/ASN, which often names the provider. A `No` doesn't fully
-rule out a VPN (residential/obscure ones may not be listed).
+**VPN Provider** — `Yes` (highlighted in orange) means the IP is a VPN, by either
+of two signals: it's in the daily-updated X4BNet VPN IP-range list, **or** its
+WhoIs Organization/ASN matches a known VPN provider (NordVPN/Tefincom, Mullvad,
+Proton, ExpressVPN, Surfshark, etc.) — shown as e.g. `Yes (NordVPN — WhoIs org)`.
+The org match catches IPs the list misses (many commercial VPNs run on rented
+datacenters, so a specific exit IP may not be in the list but its owner still
+names the provider). A `No` still doesn't fully rule out a VPN — a residential or
+obscure one may evade both signals; check the **Datacenter/Hosting** line too,
+since most VPNs egress from hosting space.
 
 **Datacenter/Hosting** — `Yes` (yellow) means the IP is in datacenter/hosting space
 rather than a residential/consumer ISP. Most VPNs, proxies, scanners, and C2 run

@@ -28,3 +28,16 @@ def test_is_datacenter_ip():
     u._datacenter_loaded_at = time.time()
     assert u.is_datacenter_ip("203.0.113.50")
     assert not u.is_datacenter_ip("8.8.8.8")
+
+
+def test_vpn_provider_from_text():
+    # catches list-missed VPNs by WhoIs org / ASN name
+    assert u.vpn_provider_from_text("TEFINCOMSA, PA") == "NordVPN"
+    assert u.vpn_provider_from_text("Mullvad VPN AB") == "Mullvad"   # specific beats generic
+    assert u.vpn_provider_from_text("Proton AG") == "Proton VPN"
+    assert u.vpn_provider_from_text("Some VPN Services LLC") == "VPN provider"
+    # generic hosters are NOT VPN-flagged (the datacenter check covers those)
+    assert u.vpn_provider_from_text("M247 Europe SRL") is None
+    assert u.vpn_provider_from_text("Datacamp Limited") is None
+    assert u.vpn_provider_from_text("Google LLC") is None
+    assert u.vpn_provider_from_text(None) is None

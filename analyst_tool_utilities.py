@@ -483,19 +483,67 @@ def is_vpn_ip(suspect_ip) -> bool:
     return False
 
 
-def check_vpn(suspect_ip):
-    """Check if an IP is in a known VPN provider range and print the result.
+# Known VPN providers, matched (case-insensitive substring) against the WhoIs
+# Organization / ASN description. This catches IPs that the X4BNet list misses
+# (e.g. many NordVPN exit IPs) because the network's registrant is the VPN brand.
+# (keyword, display name) — checked in order; the generic "vpn" catch-all is last.
+_VPN_PROVIDERS = [
+    ("tefincom", "NordVPN"), ("nordvpn", "NordVPN"),
+    ("mullvad", "Mullvad"),
+    ("protonvpn", "Proton VPN"), ("proton ag", "Proton VPN"),
+    ("expressvpn", "ExpressVPN"), ("express vpn", "ExpressVPN"),
+    ("surfshark", "Surfshark"),
+    ("private internet access", "Private Internet Access"),
+    ("privateinternetaccess", "Private Internet Access"),
+    ("cyberghost", "CyberGhost"),
+    ("ipvanish", "IPVanish"),
+    ("windscribe", "Windscribe"),
+    ("golden frog", "VyprVPN"), ("vyprvpn", "VyprVPN"),
+    ("torguard", "TorGuard"),
+    ("gz systems", "PureVPN"), ("purevpn", "PureVPN"),
+    ("hide.me", "hide.me"),
+    ("perfect privacy", "Perfect Privacy"),
+    ("azirevpn", "AzireVPN"),
+    ("ovpn.com", "OVPN"),
+    ("vpn", "VPN provider"),
+]
 
-    A match is colour-coded (orange) so it stands out in the report.
+
+def vpn_provider_from_text(text):
+    """Return a known VPN provider name if `text` (a WhoIs org/ASN string)
+    matches one, else None."""
+    if not text:
+        return None
+    low = text.lower()
+    for keyword, name in _VPN_PROVIDERS:
+        if keyword in low:
+            return name
+    return None
+
+
+def check_vpn(suspect_ip, org_text=None):
+    """Check if an IP is a VPN and print the result (colour-coded orange).
+
+    Two signals: the X4BNet VPN IP-range list, and — when `org_text` (the WhoIs
+    Organization / ASN description) is supplied — a known-VPN-provider name match,
+    which catches IPs the list misses (e.g. NordVPN / Tefincom).
 
     Sample output:
-        VPN Provider: Yes
+        VPN Provider: Yes (NordVPN — WhoIs org)
     """
     if is_vpn_ip(suspect_ip):
         print("\t{:<34} {}".format(color.ORANGE + 'VPN Provider:' + color.END,
                                    color.ORANGE + 'Yes' + color.END))
-    else:
-        print("\t{:<25} {}".format('VPN Provider:', "No"))
+        return
+
+    provider = vpn_provider_from_text(org_text)
+    if provider:
+        print("\t{:<34} {}".format(
+            color.ORANGE + 'VPN Provider:' + color.END,
+            color.ORANGE + 'Yes (' + provider + ' — WhoIs org)' + color.END))
+        return
+
+    print("\t{:<25} {}".format('VPN Provider:', "No"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

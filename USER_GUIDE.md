@@ -386,8 +386,10 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
   settings when available).
 - **WhoIs** — organization, CIDR, IP range, country, and associated abuse emails.
 - **Tor exit-node check** — whether the IP is a known Tor exit node.
-- **VPN-provider check** — whether the IP falls within a known commercial VPN
-  network (X4BNet list, no API key). A match is highlighted in orange.
+- **VPN-provider check** — whether the IP is a VPN, via the X4BNet VPN IP-range
+  list **or** a WhoIs Organization/ASN match against known VPN providers
+  (NordVPN, Mullvad, Proton, ExpressVPN, …). No API key. A match is orange and
+  names the provider when known. The org match catches IPs the list misses.
 - **Datacenter/hosting check** — whether the IP is in known datacenter/hosting
   space (X4BNet list, no API key). Useful since most VPNs/proxies are hosted.
 - **AbuseIPDB** — abuse confidence score, total reports, last reported date, distinct
@@ -412,7 +414,7 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
 | **C2Live** | Yes (self-hosted ES) | IPs | Queries your own Elasticsearch C2 index |
 | **WhoIs** | No | IPv4 & IPv6 | Via `ipwhois`; no API key required |
 | **Tor check** | No | IPs | Exit-node list cached ~45 minutes |
-| **VPN check** | No | IPs (IPv4) | X4BNet VPN ranges, cached ~24 hours; heuristic |
+| **VPN check** | No | IPs (IPv4) | X4BNet VPN ranges (cached ~24h) + WhoIs org/ASN provider-name match; heuristic |
 | **Datacenter check** | No | IPs (IPv4) | X4BNet datacenter ranges, cached ~24 hours |
 | **DNS + crt.sh** | No | Domains | A/AAAA + PTR (stdlib), MX/NS (if dnspython), subdomains from Certificate Transparency |
 | **CVE / CISA KEV** | No (optional NVD key) | CVE ids | NVD details + CISA Known Exploited Vulnerabilities status |

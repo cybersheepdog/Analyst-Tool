@@ -707,12 +707,13 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
 
     def _whois_tor():
         print(color.UNDERLINE + '\nIP Information:' + color.END)
+        org_text = None
         try:
-            ip_whois(suspect_ip)
+            org_text = ip_whois(suspect_ip)   # returns WhoIs org/ASN text
         except Exception:
             pass
         check_tor(suspect_ip)
-        check_vpn(suspect_ip)
+        check_vpn(suspect_ip, org_text)        # list match OR known-VPN org name
         check_datacenter(suspect_ip)
 
     def _abuseipdb_live():
@@ -773,17 +774,20 @@ def ip_whois(suspect_ip):
     obj = IPWhois(suspect_ip)
     res = obj.lookup_whois()
     company_count = 0
+    whois_orgs = []   # collected org/ASN text, returned for VPN-provider matching
 
     for line in res['nets']:
         if line['description'] is not None:
             m = re.match(org_match, line['description'])
             org = m.group(1)
             company_count += 1
+            whois_orgs.append(line['description'])
             print('\t{:<33} {}'.format(color.BOLD + 'Organization:' + color.END, org))
         elif line['name'] is not None:
             m = re.match(org_match, line['name'])
             org = m.group(1)
             company_count += 1
+            whois_orgs.append(line['name'])
             print('\t{:<33} {}'.format(color.BOLD + 'Organization:' + color.END, org))
         else:
             print('\t{:<33} {}'.format(color.BOLD + 'Organization:' + color.END,
@@ -809,5 +813,9 @@ def ip_whois(suspect_ip):
 
     if company_count == 0:
         print('\t{:<25} {}'.format('ASN Description:', res['asn_description']))
+
+    if res.get('asn_description'):
+        whois_orgs.append(res['asn_description'])
+    return ' '.join(w for w in whois_orgs if w)
 
 # End of analyst.py
