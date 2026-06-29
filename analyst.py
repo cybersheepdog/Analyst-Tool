@@ -32,6 +32,9 @@ from analyst_tool_mitre import *
 from analyst_tool_opencti import *
 from analyst_tool_otx import *
 from analyst_tool_utilities import *
+# `import *` skips underscore-prefixed names, so import the host helper explicitly
+# (used by the >>exclude command handler).
+from analyst_tool_utilities import _hostname_of
 from analyst_tool_virus_total import *
 from analyst_tool_shodan import *
 
@@ -160,16 +163,18 @@ def analyst(terminal=0):
                 if check != last_seen:
                     last_seen = check
 
-                    # ── Clipboard command (>> notes/tags) ─────────────────────
-                    # Handled here and skipped from indicator classification.
-                    if (cache.enabled and cache.command_prefix and check
+                    # ── Clipboard command (>> notes/tags/exclusions) ──────────
+                    # Detected regardless of cache state so the user gets feedback
+                    # (e.g. "needs the cache enabled") instead of silence. Errors
+                    # are surfaced rather than swallowed.
+                    if (cache.command_prefix and check
                             and check.startswith(cache.command_prefix)):
                         try:
                             last_indicator = _handle_command(
                                 check[len(cache.command_prefix):].strip(),
                                 cache, last_indicator)
-                        except Exception:
-                            pass
+                        except Exception as _cmd_err:
+                            print('\t[command error] ' + str(_cmd_err))
                         time.sleep(3)
                         continue
 
