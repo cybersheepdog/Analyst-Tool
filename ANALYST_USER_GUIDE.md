@@ -34,9 +34,10 @@ the tool re-fangs them automatically before looking them up.
 - **A multi-user notice** (`*** MULTI-USER NOTICE: …`) appears at the top of a
   report when more than one analyst has recently checked the same indicator.
 - **A one-line verdict** opens every IP/hash/domain/URL report, e.g.
-  `VERDICT: Likely malicious — VirusTotal 12 malicious; AbuseIPDB 97%; VPN egress`.
-  It's a quick-triage summary of the detail below — red = likely malicious,
-  orange = suspicious.
+  `VERDICT: Likely malicious — VirusTotal 12 malicious; AbuseIPDB 97%; OpenCTI
+  90/100; VPN egress`. It weighs VirusTotal, AbuseIPDB, Shodan (Cobalt Strike),
+  and your **OpenCTI** malicious score, with Tor/VPN/datacenter as context —
+  red = likely malicious, orange = suspicious.
 - **A `*** TEAM NOTES ***` block** appears at the very top when the indicator has
   shared notes — durable context a teammate (or you) left, with author, date, and
   colour-coded tags. See "Leaving notes for the team" below.

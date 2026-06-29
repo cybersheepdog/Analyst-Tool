@@ -23,6 +23,26 @@ def test_is_excluded_domain():
     assert not u.is_excluded_domain("anything", [])
 
 
+def test_is_excluded_ip_any_form():
+    ex = ["192.168.1.42", "8.8.8.8"]
+    # excluding an IP covers bare IP, IP:port, host/path, and full URLs
+    assert u.is_excluded_domain("192.168.1.42", ex)
+    assert u.is_excluded_domain("192.168.1.42:8080", ex)
+    assert u.is_excluded_domain("192.168.1.42/tool", ex)
+    assert u.is_excluded_domain("http://192.168.1.42:8080/tool", ex)
+    assert u.is_excluded_domain("8.8.8.8", ex)
+    # a different IP is still looked up
+    assert not u.is_excluded_domain("9.9.9.9", ex)
+    assert not u.is_excluded_domain("1.2.3.4:443", ex)
+
+
+def test_non_host_indicators_not_excluded():
+    ex = ["ultimatewindowssecurity.com", "8.8.8.8"]
+    for v in ["d41d8cd98f00b204e9800998ecf8427e", "CVE-2021-44228",
+              "4625", "8080", "T1059.001", "cmd.exe", "1609459200"]:
+        assert not u.is_excluded_domain(v, ex), v
+
+
 def test_config_parse(tmp_path):
     cfg = tmp_path / "config.ini"
     cfg.write_text("[EXCLUSIONS]\ndomains = A.com , .b.net,, c.org\n")

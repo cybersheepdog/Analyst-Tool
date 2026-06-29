@@ -24,6 +24,27 @@ def _int_after(text, anchor, label):
     return int(m.group(1)) if m else None
 
 
+def _opencti_score(text):
+    """Return OpenCTI's malicious score (0-100) for a real hit, else None.
+
+    OpenCTI also prints a 'Malicious:' line, so the search is bounded to the
+    OpenCTI block (from its 'OpenCTI Info:' header to its dashboard link) to
+    avoid picking up VirusTotal's malicious *count*. 'Not found' / 'not
+    configured' OpenCTI sections yield None.
+    """
+    i = text.find('OpenCTI Info:')
+    if i < 0:
+        return None
+    seg = text[i:]
+    end = seg.find('/dashboard/observations/indicators/')   # end of the OpenCTI block
+    block = seg[:end] if end >= 0 else seg[:300]
+    low = block.lower()
+    if 'not found in opencti' in low or 'not configured' in low:
+        return None
+    m = re.search(r'Malicious:\s*(\d+)', block)
+    return int(m.group(1)) if m else None
+
+
 def build_verdict(indicator_type, raw_text):
     """Return a one-line, colour-coded verdict string for a report.
 
@@ -83,6 +104,13 @@ def build_verdict(indicator_type, raw_text):
         elif sus:
             reasons.append("VirusTotal %d suspicious" % sus)
             bump(1)
+
+    # OpenCTI — your org's own intel (applies to every indicator type). Its
+    # malicious score is 0-100; thresholds mirror the OpenCTI module's colouring.
+    octi = _opencti_score(text)
+    if octi is not None and octi >= 50:
+        reasons.append("OpenCTI %d/100" % octi)
+        bump(2 if octi >= 75 else 1)
 
     if severity == 2:
         label, c = "Likely malicious", color.RED

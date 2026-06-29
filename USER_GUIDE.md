@@ -103,7 +103,7 @@ domains = ultimatewindowssecurity.com, speedguide.net, virustotal.com, ...
 
 | Key | Purpose |
 |-----|---------|
-| `domains` | Comma-separated domains to **not** look up when copied. Subdomains match too, so `ultimatewindowssecurity.com` also covers `www.ultimatewindowssecurity.com`. Pre-filled with the tool's own reference-link domains so copying a link the tool printed (to actually visit it) doesn't trigger a domain/URL lookup. Leave blank to disable. |
+| `domains` | Comma-separated **domains or IPs** to **not** look up when copied. Matching is by host, so it covers any form: subdomains (`ultimatewindowssecurity.com` also covers `www.ultimatewindowssecurity.com`) and IPs with a port/path (`192.168.1.42` also covers `192.168.1.42:8080` and `192.168.1.42/tool`). Pre-filled with the tool's own reference-link domains so copying a link it printed doesn't trigger a lookup. Leave blank to disable. |
 
 When you copy an excluded domain/URL, the tool prints a one-line
 `(Skipped — … is in the exclusion list.)` instead of running a lookup.
@@ -368,8 +368,9 @@ Two behaviours apply to all of the above:
   automatically re-fanged before detection, so they're recognized normally.
 - **One-line verdict** — IP, hash, domain and URL reports open with a single
   summary line, e.g. `VERDICT: Likely malicious — VirusTotal 12 malicious;
-  AbuseIPDB 97%; VPN egress; datacenter-hosted`, so you can triage at a glance
-  before reading the detail.
+  AbuseIPDB 97%; OpenCTI 90/100; VPN egress`. It weighs VirusTotal, AbuseIPDB,
+  Shodan (Cobalt Strike) and your OpenCTI malicious score, with Tor/VPN/datacenter
+  as context, so you can triage at a glance before reading the detail.
 
 Example of an enriched number lookup (shown as both a port and an Event ID):
 

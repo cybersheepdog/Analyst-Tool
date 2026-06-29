@@ -33,3 +33,24 @@ def test_hash_and_domain():
     assert "VirusTotal 2 malicious" in h and "Suspicious" in h
     d = _plain("domain", "Last Analysis Stats:\n\tMalicious: 8\nRelated Pulses: 5\n")
     assert "Likely malicious" in d and "OTX 5 pulses" in d
+
+
+def test_opencti_drives_verdict():
+    link = "\thttps://octi/dashboard/observations/indicators/abc\n"
+    # OpenCTI high score -> malicious even when VT is clean
+    r = _plain("ip", "OpenCTI Info: X\n\tMalicious: 90\n" + link +
+               "VirusToal Detections:\n\tMalicious: 0\n")
+    assert "Likely malicious" in r and "OpenCTI 90/100" in r
+
+    # OpenCTI block is bounded -> does NOT mistake VT's count (14) for the score
+    r2 = _plain("ip", "OpenCTI Info: X\n\tMalicious: 60\n" + link +
+                "VirusToal Detections:\n\tMalicious: 14\n")
+    assert "OpenCTI 60/100" in r2 and "VirusTotal 14 malicious" in r2
+
+    # 'Not found' / low score do not contribute
+    r3 = _plain("ip", "OpenCTI Info: X\nX Not found in OpenCTI\n"
+                "VirusToal Detections:\n\tMalicious: 14\n")
+    assert "OpenCTI" not in r3 and "VirusTotal 14 malicious" in r3
+    r4 = _plain("ip", "VirusToal Detections:\n\tMalicious: 0\n"
+                "OpenCTI Info: X\n\tMalicious: 20\n" + link)
+    assert "No strong reputation signals" in r4

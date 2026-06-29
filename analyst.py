@@ -195,6 +195,18 @@ def analyst(terminal=0):
                     # detection below matches indicators copied from reports.
                     clipboard_contents = refang(clipboard_contents)
 
+                    # ── Excluded host? ────────────────────────────────────────
+                    # Skip anything whose host is on the exclusion list, in ANY
+                    # form: bare IP/domain, IP:port, host/path, or a full URL
+                    # (e.g. excluding 192.168.1.42 also skips 192.168.1.42:8080
+                    # and 192.168.1.42/tool). Local config list + shared DB list.
+                    if is_excluded_domain(clipboard_contents,
+                                          excluded_domains + list(cache.get_exclusions())):
+                        print('\n(Skipped — ' + clipboard_contents
+                              + ' is in the exclusion list.)')
+                        time.sleep(3)
+                        continue
+
                     # ── Hash ──────────────────────────────────────────────────────────────
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
@@ -223,33 +235,23 @@ def analyst(terminal=0):
 
                     # ── Domain ────────────────────────────────────────────────────────────
                     elif validators.domain(clipboard_contents) == True:
-                        if is_excluded_domain(clipboard_contents,
-                                              excluded_domains + list(cache.get_exclusions())):
-                            print('\n(Skipped — ' + clipboard_contents
-                                  + ' is in the exclusion list.)')
-                        else:
-                            suspect_domain = clipboard_contents
-                            last_indicator = (suspect_domain, 'domain')
-                            _lookup_domain_parallel(
-                                suspect_domain, virus_total_headers, vt_user,
-                                opencti_headers, otx, otx_intel_list,
-                                cache=cache, force_refresh=force_refresh
-                            )
+                        suspect_domain = clipboard_contents
+                        last_indicator = (suspect_domain, 'domain')
+                        _lookup_domain_parallel(
+                            suspect_domain, virus_total_headers, vt_user,
+                            opencti_headers, otx, otx_intel_list,
+                            cache=cache, force_refresh=force_refresh
+                        )
 
                     # ── URL ───────────────────────────────────────────────────────────────
                     elif validators.url(clipboard_contents) == True:
-                        if is_excluded_domain(clipboard_contents,
-                                              excluded_domains + list(cache.get_exclusions())):
-                            print('\n(Skipped — ' + clipboard_contents
-                                  + ' is in the exclusion list.)')
-                        else:
-                            suspect_url = clipboard_contents
-                            last_indicator = (suspect_url, 'url')
-                            _lookup_url_parallel(
-                                suspect_url, virus_total_headers,
-                                opencti_headers, otx, otx_intel_list,
-                                cache=cache, force_refresh=force_refresh
-                            )
+                        suspect_url = clipboard_contents
+                        last_indicator = (suspect_url, 'url')
+                        _lookup_url_parallel(
+                            suspect_url, virus_total_headers,
+                            opencti_headers, otx, otx_intel_list,
+                            cache=cache, force_refresh=force_refresh
+                        )
 
                     # ── MITRE ─────────────────────────────────────────────────────────────
                     elif re.match(mitre_regex, clipboard_contents):

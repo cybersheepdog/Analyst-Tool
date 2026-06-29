@@ -172,10 +172,14 @@ The effective skip list is the union of both.
 
 ```
 >>exclude www.ultimatewindowssecurity.com   add a domain (subdomains match too)
+>>exclude 192.168.1.42                       add an IP (also skips :8080 and /tool forms)
 >>exclude                                    exclude the host of your last lookup
 >>exclude-rm speedguide.net                  remove one (anyone may remove)
 >>exclude-list                               show the shared list
 ```
+
+Exclusions match by **host**, so a domain entry covers its subdomains and an IP
+entry covers that IP in any form — bare, `IP:port`, `IP/path`, or a full URL.
 
 Each entry records who added it and when. The same actions are available from the
 CLI for bulk/scripted use:
