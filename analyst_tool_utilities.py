@@ -9,6 +9,7 @@ import threading
 import time
 import warnings
 from configparser import ConfigParser
+from urllib.parse import urlparse
 
 # 3rd Party Imports
 import validators
@@ -716,3 +717,47 @@ def sanitize_url(suspect_url):
     elif suspect_url.startswith('http'):
         return 'hxxp:' + suspect_url[5:]
     return 'hxxp:' + suspect_url
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Domain exclusions — skip domain/URL lookups for configured domains
+#
+# Lets you stop the clipboard monitor from looking up domains/URLs you copy on
+# purpose — e.g. a reference link the tool itself printed (Ultimate Windows
+# Security, SpeedGuide, VirusTotal GUI, etc.). Subdomains of an excluded domain
+# are matched too, so "ultimatewindowssecurity.com" also covers
+# "www.ultimatewindowssecurity.com".
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_excluded_domains_from_config(path="config.ini"):
+    """Return the lowercased list of domains to skip for domain/URL lookups."""
+    config_object = ConfigParser()
+    try:
+        config_object.read(path)
+        raw = config_object.get("EXCLUSIONS", "domains", fallback="")
+    except Exception:
+        raw = ""
+    return [d.strip().lower().lstrip('.') for d in raw.split(',') if d.strip()]
+
+
+def _hostname_of(value):
+    """Extract the lowercase hostname from a domain or URL string."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    parsed = urlparse(v if "://" in v else "//" + v)
+    host = parsed.hostname or ""
+    return host.lower().rstrip(".")
+
+
+def is_excluded_domain(value, excluded):
+    """True if value's host equals, or is a subdomain of, any excluded domain."""
+    if not excluded:
+        return False
+    host = _hostname_of(value)
+    if not host:
+        return False
+    for d in excluded:
+        if host == d or host.endswith("." + d):
+            return True
+    return False

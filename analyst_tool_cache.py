@@ -58,6 +58,7 @@ def get_cache_config_from_config(path="config.ini"):
         # shared annotations / commands
         "command_prefix": ">>",
         "max_notes_shown": 5,
+        "exclusion_refresh_minutes": 5.0,
         # remote (PostgreSQL)
         "host": "",
         "port": 5432,
@@ -113,6 +114,7 @@ def get_cache_config_from_config(path="config.ini"):
     cfg["check_dedup_minutes"] = _float("check_dedup_minutes", 60.0)
     cfg["command_prefix"] = _get("command_prefix", ">>")
     cfg["max_notes_shown"] = _int("max_notes_shown", 5)
+    cfg["exclusion_refresh_minutes"] = _float("exclusion_refresh_minutes", 5.0)
     cfg["host"] = _get("host", "")
     cfg["port"] = _int("port", 5432)
     cfg["dbname"] = _get("dbname", "")
@@ -171,6 +173,15 @@ _CREATE_ANNOTATIONS = (
     " created_at DOUBLE PRECISION)"
 )
 
+# Shared domain exclusion list — domains/URLs to skip for lookups, team-wide on
+# the remote backend. Anyone may add or remove.
+_CREATE_EXCLUSIONS = (
+    "CREATE TABLE IF NOT EXISTS exclusions ("
+    " domain TEXT NOT NULL,"
+    " added_by TEXT,"
+    " created_at DOUBLE PRECISION)"
+)
+
 
 class SQLiteBackend:
     """Local single-file cache using the stdlib sqlite3 module."""
@@ -207,6 +218,10 @@ class SQLiteBackend:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_annot_ind "
                 "ON indicator_annotations(indicator)")
+            conn.execute(_CREATE_EXCLUSIONS)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_excl_dom "
+                "ON exclusions(domain)")
             conn.commit()
 
     def get_fresh_row(self, indicator, service, fresh_secs):
@@ -338,6 +353,32 @@ class SQLiteBackend:
             conn.commit()
             return cur.rowcount
 
+    def add_exclusion(self, domain, username):
+        """Add a domain to the shared exclusion list (dedup). Returns True if new."""
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute("SELECT 1 FROM exclusions WHERE domain=?", (domain,))
+            if cur.fetchone() is not None:
+                return False
+            conn.execute(
+                "INSERT INTO exclusions (domain, added_by, created_at) "
+                "VALUES (?,?,?)", (domain, username, time.time()))
+            conn.commit()
+            return True
+
+    def list_exclusions(self):
+        cur = self._conn().execute(
+            "SELECT domain, added_by, created_at FROM exclusions ORDER BY domain")
+        return [{"domain": r["domain"], "added_by": r["added_by"],
+                 "created_at": r["created_at"]} for r in cur.fetchall()]
+
+    def delete_exclusion(self, domain):
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute("DELETE FROM exclusions WHERE domain=?", (domain,))
+            conn.commit()
+            return cur.rowcount
+
 
 class PostgresBackend:
     """Shared remote cache using PostgreSQL (psycopg2).
@@ -385,6 +426,10 @@ class PostgresBackend:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_annot_ind "
                 "ON indicator_annotations(indicator)")
+            cur.execute(_CREATE_EXCLUSIONS)
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_excl_dom "
+                "ON exclusions(domain)")
 
     def get_fresh_row(self, indicator, service, fresh_secs):
         with self._cursor() as cur:
@@ -502,6 +547,30 @@ class PostgresBackend:
                 "WHERE indicator=%s AND username=%s", (indicator, username))
             return cur.rowcount
 
+    def add_exclusion(self, domain, username):
+        with self._cursor() as cur:
+            cur.execute("SELECT 1 FROM exclusions WHERE domain=%s", (domain,))
+            if cur.fetchone() is not None:
+                return False
+            cur.execute(
+                "INSERT INTO exclusions (domain, added_by, created_at) "
+                "VALUES (%s,%s,%s)", (domain, username, time.time()))
+            return True
+
+    def list_exclusions(self):
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT domain, added_by, created_at FROM exclusions ORDER BY domain")
+            rows = cur.fetchall()
+        return [{"domain": r[0], "added_by": r[1],
+                 "created_at": float(r[2]) if r[2] is not None else None}
+                for r in rows]
+
+    def delete_exclusion(self, domain):
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM exclusions WHERE domain=%s", (domain,))
+            return cur.rowcount
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Thread-aware stdout capture
@@ -570,7 +639,8 @@ class CacheManager:
 
     def __init__(self, backend, freshness_days=7.0, force_prefix="!",
                  purge_days=0.0, username="unknown", check_window_days=7.0,
-                 check_dedup_minutes=60.0, command_prefix=">>", max_notes_shown=5):
+                 check_dedup_minutes=60.0, command_prefix=">>", max_notes_shown=5,
+                 exclusion_refresh_minutes=5.0):
         self.backend = backend
         self.enabled = backend is not None
         self.freshness_seconds = max(0.0, float(freshness_days)) * 86400.0
@@ -584,6 +654,9 @@ class CacheManager:
             self.max_notes_shown = max(1, int(max_notes_shown))
         except Exception:
             self.max_notes_shown = 5
+        self.exclusion_ttl_seconds = max(0.0, float(exclusion_refresh_minutes)) * 60.0
+        self._exclusions_cache = None
+        self._exclusions_loaded_at = 0.0
         self._print_lock = threading.Lock()
 
     # -- helpers -------------------------------------------------------------
@@ -838,6 +911,80 @@ class CacheManager:
         self._emit(self._GREEN + "[+] Removed %d of your note(s) for %s"
                    % (removed, indicator) + self._END)
 
+    # -- shared domain exclusions -------------------------------------------
+
+    def get_exclusions(self):
+        """Return the set of centrally-stored excluded domains (TTL-cached so a
+        teammate's addition propagates without restarting)."""
+        if not self.enabled:
+            return set()
+        now = time.time()
+        if (self._exclusions_cache is not None and
+                (now - self._exclusions_loaded_at) < self.exclusion_ttl_seconds):
+            return self._exclusions_cache
+        try:
+            rows = self.backend.list_exclusions()
+            self._exclusions_cache = {(r.get("domain") or "").lower() for r in rows
+                                      if r.get("domain")}
+            self._exclusions_loaded_at = now
+        except Exception:
+            if self._exclusions_cache is None:
+                self._exclusions_cache = set()
+        return self._exclusions_cache
+
+    def add_exclusion(self, domain):
+        """Add a domain to the shared exclusion list (domain already host-normalized)."""
+        if not self.enabled:
+            print("\t[exclude] Needs the cache enabled ([CACHE] in config.ini).")
+            return
+        domain = (domain or "").strip().lower()
+        if not domain:
+            return
+        try:
+            added = self.backend.add_exclusion(domain, self.username)
+        except Exception as exc:
+            print("\t[exclude] Could not add: %s" % exc)
+            return
+        self._exclusions_loaded_at = 0.0   # force a refresh on next use
+        if added:
+            self._emit(self._GREEN + "[+] Added '%s' to the shared exclusion list "
+                       "(by %s)" % (domain, self.username) + self._END)
+        else:
+            self._emit("\t'%s' is already excluded." % domain)
+
+    def remove_exclusion(self, domain):
+        """Remove a domain from the shared exclusion list (anyone may remove)."""
+        if not self.enabled:
+            return
+        domain = (domain or "").strip().lower()
+        try:
+            removed = self.backend.delete_exclusion(domain)
+        except Exception as exc:
+            print("\t[exclude] Could not remove: %s" % exc)
+            return
+        self._exclusions_loaded_at = 0.0
+        self._emit(self._GREEN + "[+] Removed %d exclusion(s) for '%s'"
+                   % (removed, domain) + self._END)
+
+    def print_exclusions(self):
+        """Print the current shared exclusion list."""
+        if not self.enabled:
+            return
+        try:
+            rows = self.backend.list_exclusions()
+        except Exception:
+            return
+        self._emit(self._BOLD + self._CYAN + "*** SHARED EXCLUSIONS (%d) ***"
+                   % len(rows) + self._END)
+        if not rows:
+            self._emit("\t(none — add one with >>exclude <domain>)")
+            return
+        for r in rows:
+            when = time.strftime('%Y-%m-%d',
+                                 time.localtime(r.get("created_at") or time.time()))
+            self._emit("\t%-40s %s · %s" % (r.get("domain", ""),
+                                            r.get("added_by") or "unknown", when))
+
     # -- lifecycle -----------------------------------------------------------
 
     def startup(self):
@@ -912,5 +1059,6 @@ def build_cache_manager(path="config.ini"):
         check_window_days=cfg["check_window_days"],
         check_dedup_minutes=cfg["check_dedup_minutes"],
         command_prefix=cfg["command_prefix"],
-        max_notes_shown=cfg["max_notes_shown"])
+        max_notes_shown=cfg["max_notes_shown"],
+        exclusion_refresh_minutes=cfg["exclusion_refresh_minutes"])
     return manager

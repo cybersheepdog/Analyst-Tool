@@ -32,9 +32,14 @@ You can enter notes three ways — pick whichever is comfortable:
 | `>>note` | Prompt for a note on your **last** lookup |
 | `>>tag <indicator> <tag1> <tag2>` | Add tags only (no note text) |
 | `>>note-rm <indicator>` | Remove **your** notes for an indicator |
-| `python annotate.py add <indicator> "<text>" [--tags a,b]` | Add via CLI |
+| `python annotate.py add <indicator> "<text>" [--tags a,b]` | Add a note via CLI |
 | `python annotate.py list <indicator>` | Show notes via CLI |
 | `python annotate.py rm <indicator>` | Remove your notes via CLI |
+| `>>exclude <domain>` | Add a domain to the **shared** skip list (anyone can remove) |
+| `>>exclude` | Exclude the host of your **last** domain/URL lookup |
+| `>>exclude-rm <domain>` | Remove a domain from the shared skip list |
+| `>>exclude-list` | Show the shared exclusion list |
+| `python annotate.py exclude add/list/rm <domain>` | Manage exclusions via CLI |
 
 `<indicator>` is an IP, hash, domain, or URL. Tags are written inline as
 `#tag` inside a note, or as bare words with `>>tag`.
@@ -152,7 +157,39 @@ login name if that's blank.
 
 ---
 
-## 7. Configuration
+## 7. Shared domain exclusions
+
+The tool skips lookups for domains you don't want reported (e.g. a reference link
+it printed, or an internal portal). There are two layers:
+
+- **Local** — your `config.ini [EXCLUSIONS] domains` list (pre-filled with the
+  tool's own reference-link domains). Always applies, per machine.
+- **Shared** — a list stored in the cache database. On the **remote** backend
+  it's team-wide: anyone can add or remove, and changes propagate to everyone
+  within `exclusion_refresh_minutes` (default 5) without restarting.
+
+The effective skip list is the union of both.
+
+```
+>>exclude www.ultimatewindowssecurity.com   add a domain (subdomains match too)
+>>exclude                                    exclude the host of your last lookup
+>>exclude-rm speedguide.net                  remove one (anyone may remove)
+>>exclude-list                               show the shared list
+```
+
+Each entry records who added it and when. The same actions are available from the
+CLI for bulk/scripted use:
+
+```bash
+python annotate.py exclude add internal.portal.corp.com
+python annotate.py exclude list
+python annotate.py exclude rm internal.portal.corp.com
+```
+
+When you copy an excluded domain/URL, the tool prints a one-line
+`(Skipped — … is in the exclusion list.)` instead of running a lookup.
+
+## 8. Configuration
 
 In `config.ini` under `[CACHE]`:
 
@@ -160,7 +197,8 @@ In `config.ini` under `[CACHE]`:
 |-----|---------|---------|
 | `command_prefix` | `>>` | Marks a clipboard line as a command. Change it if `>>` clashes with something you copy often. |
 | `max_notes_shown` | `5` | How many notes to show before `(+N more)`. |
-| `user` | OS login | The name recorded as the note's author — give each analyst a unique value on a shared DB. |
+| `exclusion_refresh_minutes` | `5` | How often to re-pull the shared exclusion list from the DB so a teammate's `>>exclude` propagates. |
+| `user` | OS login | The name recorded as the note's / exclusion's author — give each analyst a unique value on a shared DB. |
 
 ---
 

@@ -194,9 +194,20 @@ the LOLDrivers URL. Useful for BYOVD (bring-your-own-vulnerable-driver) triage.
 
 ### 9. Port number or Windows Event ID
 
-Copy a 1–5 digit number. Because the same number could be either, the tool gives
-you **both**: a SpeedGuide reference link for that **port**, and an Ultimate Windows
-Security reference link for that **Windows Event ID**. Click whichever you meant.
+Copy a 1–5 digit number. Because it could be either, the tool shows **both**
+interpretations with real detail (not just links):
+
+- **As a port** — the service name and description from the IANA registry (cached
+  locally), plus a malware/C2 note for notable ports (e.g. `4444` Metasploit,
+  `8443`/`50050` Cobalt Strike, `9050` Tor) highlighted in red when commonly
+  malicious.
+- **As a Windows Event ID** — the event's name, log and category, and an analyst
+  note for high-value events (e.g. `4625` failed logon, `4688`/Sysmon `1` process
+  creation, `7045` service install, `1102` log cleared, `4769` Kerberoasting).
+
+Each section keeps its SpeedGuide / Ultimate Windows Security link for a deep dive.
+
+![Enriched port / Event ID lookup](graphics/screenshot_port_wevid.svg)
 
 ### 10. Epoch timestamp
 
@@ -290,6 +301,12 @@ Full reference: `NOTE_COMMANDS.md`.
 
 ## Quick tips
 
+- **Copying a reference link won't trigger a lookup.** The tool's own link
+  domains (Ultimate Windows Security, SpeedGuide, VirusTotal, etc.) are excluded,
+  so clicking through a link it printed is safe. Skip more domains with
+  `>>exclude <domain>` (or `>>exclude` right after seeing one) — on the shared
+  database that exclusion applies team-wide. `>>exclude-list` shows the list, and
+  `[EXCLUSIONS]` in `config.ini` is your personal/local list.
 - The tool reacts only when the clipboard **changes** — re-copy if nothing appears.
 - Everything is **passive**: looking an indicator up never submits it for scanning.
 - **Color is your friend** — scan for red/orange first.

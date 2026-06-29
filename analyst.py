@@ -26,6 +26,7 @@ from analyst_tool_cache import build_cache_manager
 from analyst_tool_c2live import get_c2live_config, query_c2live
 from analyst_tool_cve import cve_regex, print_cve_info, get_cisa_kev, get_nvd_key_from_config
 from analyst_tool_dns import print_dns_and_crt
+from analyst_tool_portwevid import print_port_and_wevid
 from analyst_tool_lols import *
 from analyst_tool_mitre import *
 from analyst_tool_opencti import *
@@ -122,6 +123,9 @@ def analyst(terminal=0):
     cve_kev = get_cisa_kev()
     nvd_key = get_nvd_key_from_config()
 
+    # Domains to skip for domain/URL lookups (e.g. the tool's own reference links).
+    excluded_domains = get_excluded_domains_from_config()
+
     # --- MITRE loading ---
     # AsyncAnalystToolMitre handles its own cache check internally.
     # It reads from the on-disk JSON if fresh (90-day window), or calls
@@ -198,7 +202,7 @@ def analyst(terminal=0):
 
                     # ── Port / Windows Event ID ───────────────────────────────────────────
                     elif re.match(port_wid_validation_regex, clipboard_contents):
-                        is_port_or_weivd(clipboard_contents)
+                        print_port_and_wevid(clipboard_contents)
 
                     # ── LOLBas ────────────────────────────────────────────────────────────
                     elif get_lolbas_file_endings(lolbas, clipboard_contents):
@@ -214,23 +218,33 @@ def analyst(terminal=0):
 
                     # ── Domain ────────────────────────────────────────────────────────────
                     elif validators.domain(clipboard_contents) == True:
-                        suspect_domain = clipboard_contents
-                        last_indicator = (suspect_domain, 'domain')
-                        _lookup_domain_parallel(
-                            suspect_domain, virus_total_headers, vt_user,
-                            opencti_headers, otx, otx_intel_list,
-                            cache=cache, force_refresh=force_refresh
-                        )
+                        if is_excluded_domain(clipboard_contents,
+                                              excluded_domains + list(cache.get_exclusions())):
+                            print('\n(Skipped — ' + clipboard_contents
+                                  + ' is in the exclusion list.)')
+                        else:
+                            suspect_domain = clipboard_contents
+                            last_indicator = (suspect_domain, 'domain')
+                            _lookup_domain_parallel(
+                                suspect_domain, virus_total_headers, vt_user,
+                                opencti_headers, otx, otx_intel_list,
+                                cache=cache, force_refresh=force_refresh
+                            )
 
                     # ── URL ───────────────────────────────────────────────────────────────
                     elif validators.url(clipboard_contents) == True:
-                        suspect_url = clipboard_contents
-                        last_indicator = (suspect_url, 'url')
-                        _lookup_url_parallel(
-                            suspect_url, virus_total_headers,
-                            opencti_headers, otx, otx_intel_list,
-                            cache=cache, force_refresh=force_refresh
-                        )
+                        if is_excluded_domain(clipboard_contents,
+                                              excluded_domains + list(cache.get_exclusions())):
+                            print('\n(Skipped — ' + clipboard_contents
+                                  + ' is in the exclusion list.)')
+                        else:
+                            suspect_url = clipboard_contents
+                            last_indicator = (suspect_url, 'url')
+                            _lookup_url_parallel(
+                                suspect_url, virus_total_headers,
+                                opencti_headers, otx, otx_intel_list,
+                                cache=cache, force_refresh=force_refresh
+                            )
 
                     # ── MITRE ─────────────────────────────────────────────────────────────
                     elif re.match(mitre_regex, clipboard_contents):
@@ -435,6 +449,24 @@ def _handle_command(body, cache, last_indicator):
             cache.remove_my_notes(target, itype)
         else:
             print("\t[note-rm] usage: >>note-rm <indicator>")
+    elif verb in ('exclude', 'excl'):
+        # Add a domain (or the host of the last domain/URL looked up) to the
+        # shared exclusion list. Normalize URLs/domains to a bare host.
+        raw = rest.strip() or (last_indicator[0] if last_indicator else "")
+        host = _hostname_of(raw)
+        if host:
+            cache.add_exclusion(host)
+        else:
+            print("\t[exclude] usage: >>exclude <domain>  "
+                  "(or copy a domain/URL, then >>exclude)")
+    elif verb in ('exclude-rm', 'unexclude', 'excl-rm'):
+        host = _hostname_of(rest.strip())
+        if host:
+            cache.remove_exclusion(host)
+        else:
+            print("\t[exclude-rm] usage: >>exclude-rm <domain>")
+    elif verb in ('exclude-list', 'exclusions', 'excl-list'):
+        cache.print_exclusions()
     else:
         print("\t[cmd] Unknown command '%s'. Try note / tag / note-rm." % verb)
     return last_indicator

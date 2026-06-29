@@ -17,8 +17,18 @@ import argparse
 import ipaddress
 import re
 import sys
+from urllib.parse import urlparse
 
 from analyst_tool_cache import build_cache_manager
+
+
+def _host(value):
+    """Normalize a domain or URL to a bare lowercase hostname."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    parsed = urlparse(v if "://" in v else "//" + v)
+    return (parsed.hostname or "").lower().rstrip(".")
 
 
 def _guess_type(token):
@@ -63,23 +73,36 @@ def main():
     p_rm = sub.add_parser("rm", help="remove YOUR notes for an indicator")
     p_rm.add_argument("indicator")
 
+    p_excl = sub.add_parser("exclude", help="manage the shared domain exclusion list")
+    esub = p_excl.add_subparsers(dest="ecmd", required=True)
+    esub.add_parser("list", help="show the shared exclusion list")
+    e_add = esub.add_parser("add", help="add a domain/URL to skip")
+    e_add.add_argument("domain")
+    e_rm = esub.add_parser("rm", help="remove a domain (anyone may remove)")
+    e_rm.add_argument("domain")
+
     args = parser.parse_args()
 
     cache = build_cache_manager()
     if not cache.enabled:
-        print("Notes need the cache enabled. Set [CACHE] enabled = true (and a "
+        print("This needs the cache enabled. Set [CACHE] enabled = true (and a "
               "backend) in config.ini.", file=sys.stderr)
         sys.exit(1)
 
-    itype = _guess_type(args.indicator)
-
     if args.cmd == "add":
         tags = [t for t in re.split(r"[,\s]+", args.tags) if t]
-        cache.add_note(args.indicator, itype, args.note, extra_tags=tags)
+        cache.add_note(args.indicator, _guess_type(args.indicator), args.note, extra_tags=tags)
     elif args.cmd == "list":
-        cache.print_team_notes(args.indicator, itype)
+        cache.print_team_notes(args.indicator, _guess_type(args.indicator))
     elif args.cmd == "rm":
-        cache.remove_my_notes(args.indicator, itype)
+        cache.remove_my_notes(args.indicator, _guess_type(args.indicator))
+    elif args.cmd == "exclude":
+        if args.ecmd == "add":
+            cache.add_exclusion(_host(args.domain))
+        elif args.ecmd == "list":
+            cache.print_exclusions()
+        elif args.ecmd == "rm":
+            cache.remove_exclusion(_host(args.domain))
 
 
 if __name__ == "__main__":

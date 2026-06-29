@@ -143,6 +143,7 @@ analyst_cache.db
 vpn_networks.txt
 datacenter_networks.txt
 cisa_kev.json
+iana_ports.csv
 tor_exit_nodes.txt
 lolbas.json
 drivers.json

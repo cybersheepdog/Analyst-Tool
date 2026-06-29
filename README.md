@@ -33,6 +33,8 @@ It integrates VirusTotal, AbuseIPDB, Shodan, AlienVault OTX, OpenCTI, C2 Live, W
 - **Optional SSL-verify fallback.** A `config.ini` flag lets outbound API calls retry with certificate verification disabled when needed (e.g. behind a TLS-intercepting proxy). Off by default.
 - **Automated remote-DB server setup.** `server_setup/setup_remote_db.sh` stands up the shared PostgreSQL database (install, role, schema, network config) in one idempotent command on Debian/Ubuntu.
 - **More enrichment.** Refang of defanged IOCs, CVE / CISA KEV lookups, DNS + crt.sh subdomain pivoting, a datacenter/hosting flag, and a one-line verdict atop each report.
+- **Enriched port / Event ID lookups.** A copied number now returns the port's service (cached IANA registry) and malware/C2 associations, plus the Windows Event ID's name, log, category and an analyst note — not just reference links.
+- **Domain exclusions.** A configurable `[EXCLUSIONS]` list skips domain/URL lookups for chosen domains (pre-filled with the tool's own reference-link domains), so copying a link it printed doesn't trigger a lookup.
 - **Tests & CI.** A `pytest` suite (`tests/`) and a GitHub Actions workflow run the tests and a syntax check on every push/PR.
 
 ## Documentation

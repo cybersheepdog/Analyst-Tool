@@ -94,6 +94,27 @@ All credentials and options live in `config.ini` in the project folder. **Every 
 service is optional.** Fill in only the ones you want to use; the rest are skipped
 automatically. The file is organized into sections:
 
+### `[EXCLUSIONS]` — skip domains/URLs
+
+```ini
+[EXCLUSIONS]
+domains = ultimatewindowssecurity.com, speedguide.net, virustotal.com, ...
+```
+
+| Key | Purpose |
+|-----|---------|
+| `domains` | Comma-separated domains to **not** look up when copied. Subdomains match too, so `ultimatewindowssecurity.com` also covers `www.ultimatewindowssecurity.com`. Pre-filled with the tool's own reference-link domains so copying a link the tool printed (to actually visit it) doesn't trigger a domain/URL lookup. Leave blank to disable. |
+
+When you copy an excluded domain/URL, the tool prints a one-line
+`(Skipped — … is in the exclusion list.)` instead of running a lookup.
+
+This `[EXCLUSIONS]` list is **local** (per machine). There is also a **shared**
+exclusion list stored in the cache database — on the remote backend it's
+team-wide, and anyone can add/remove it with `>>exclude <domain>` /
+`>>exclude-rm` / `>>exclude-list` (or `python annotate.py exclude add/list/rm`).
+The effective skip list is the union of the local list and the shared list. See
+[NOTE_COMMANDS.md](NOTE_COMMANDS.md).
+
 ### `[GENERAL]`
 
 ```ini
@@ -139,6 +160,7 @@ sslmode = prefer
 | `check_dedup_minutes` | A re-check by the **same** user within this many minutes isn't counted again. Default `60`. |
 | `command_prefix` | Marks a clipboard line as a notes/tags command rather than an indicator. Default `>>`. See [NOTE_COMMANDS.md](NOTE_COMMANDS.md). |
 | `max_notes_shown` | How many team notes to show atop a report before `(+N more)`. Default `5`. |
+| `exclusion_refresh_minutes` | How often to re-pull the shared domain-exclusion list from the DB so a teammate's `>>exclude` propagates without a restart. Default `5`. |
 | `host`, `port`, `dbname`, `db_user`, `password`, `sslmode` | PostgreSQL connection settings (remote backend only). Note the connection user is `db_user` — `user` above is the analyst identity. |
 
 See [Result caching](#result-caching-save-api-calls-local-or-remote) for full behavior. The remote backend needs the `psycopg2-binary` package (already in `requirements.txt`); the local backend needs nothing beyond the standard library.
@@ -245,6 +267,17 @@ nvd_api_key =
 |-----|---------|
 | `nvd_api_key` | Optional NVD API key. CVE lookups work without one at low volume; a key raises the NVD rate limit. Get one free at nvd.nist.gov. |
 
+### `[WINDOWS_EVENTS]` — Windows Event ID catalog
+
+```ini
+[WINDOWS_EVENTS]
+feed_url =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `feed_url` | Optional URL to a JSON feed of Windows Event IDs (same schema as the bundled `windows_event_ids.json`) to keep the catalog current. Blank = use the bundled file. Ports are enriched automatically from the IANA registry — no key needed. |
+
 > Reference data services — **WhoIs**, **Tor / VPN / datacenter checks**,
 > **DNS + crt.sh**, **CVE / CISA KEV**, **MITRE ATT&CK**, **LOLBAS**, and
 > **LOLDrivers** — require **no API keys** and work automatically (the optional
@@ -315,7 +348,7 @@ automatically. Detection is evaluated in this order (the first match wins):
 | # | Indicator | What triggers it | What you get |
 |---|-----------|------------------|--------------|
 | 1 | **File hash** | MD5 (32), SHA1 (40), or SHA256 (64) hex characters | VirusTotal reputation + threat classification + file info, OpenCTI record, and OTX hash report (contacted domains/IPs), run in parallel |
-| 2 | **Port or Windows Event ID** | A 1–5 digit number | A SpeedGuide port reference link **and** an Ultimate Windows Security event-ID reference link (the number can be either, so both are provided) |
+| 2 | **Port or Windows Event ID** | A 1–5 digit number | Both interpretations, enriched: the **port's** service (IANA registry) and any malware/C2 association, and the **Windows Event ID's** name, log, category and an analyst note — each with its SpeedGuide / Ultimate Windows Security link |
 | 3 | **LOLBAS binary** | A filename ending in a known LOLBAS extension (e.g. `cmd.exe`) | Name, description, full path(s), example commands with use case/privileges/MITRE IDs, IOCs, and the LOLBAS URL |
 | 4 | **LOLDriver** | A filename matching a known malicious/vulnerable driver | Name, description, MITRE ID, command/OS/privilege/use-case, resources, and the LOLDrivers URL |
 | 5 | **Domain** | A valid domain name | VirusTotal domain report (detections, WHOIS creation date, certificate info), OpenCTI record, and OTX domain report, in parallel |
@@ -337,6 +370,10 @@ Two behaviours apply to all of the above:
   summary line, e.g. `VERDICT: Likely malicious — VirusTotal 12 malicious;
   AbuseIPDB 97%; VPN egress; datacenter-hosted`, so you can triage at a glance
   before reading the detail.
+
+Example of an enriched number lookup (shown as both a port and an Event ID):
+
+![Enriched port / Event ID lookup](graphics/screenshot_port_wevid.svg)
 
 ### Public IP analysis (the most comprehensive report)
 
@@ -378,6 +415,7 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
 | **Datacenter check** | No | IPs (IPv4) | X4BNet datacenter ranges, cached ~24 hours |
 | **DNS + crt.sh** | No | Domains | A/AAAA + PTR (stdlib), MX/NS (if dnspython), subdomains from Certificate Transparency |
 | **CVE / CISA KEV** | No (optional NVD key) | CVE ids | NVD details + CISA Known Exploited Vulnerabilities status |
+| **Ports / Event IDs** | No | numbers | IANA port registry (cached) + bundled malware-port and Windows Event ID catalogs |
 | **MITRE ATT&CK** | No | Tactic/technique IDs | Local JSON cache refreshed every 90 days |
 | **LOLBAS** | No | Living-off-the-land binaries | JSON cache refreshed every 14 days |
 | **LOLDrivers** | No | Malicious/vulnerable drivers | JSON cache refreshed every 14 days |
@@ -556,6 +594,7 @@ folder. These are created/refreshed automatically — you don't need to manage t
 | `vpn_networks.txt` | Known VPN provider IP ranges (X4BNet) | ~24 hours |
 | `datacenter_networks.txt` | Known datacenter/hosting IP ranges (X4BNet) | ~24 hours |
 | `cisa_kev.json` | CISA Known Exploited Vulnerabilities catalog | ~24 hours |
+| `iana_ports.csv` | IANA service-name/port registry | ~30 days |
 | `analyst_cache.db` | Cached service results + usage counters + per-user check log (local backend) | Per-entry, `freshness_days` (default 7) |
 
 If a refresh download fails, the tool falls back to the existing cached copy so it keeps
