@@ -41,3 +41,11 @@ def test_vpn_provider_from_text():
     assert u.vpn_provider_from_text("Datacamp Limited") is None
     assert u.vpn_provider_from_text("Google LLC") is None
     assert u.vpn_provider_from_text(None) is None
+
+
+def test_vpn_provider_from_ptr_hostname():
+    # reverse-DNS (PTR) is the third signal: a NordVPN node whose WhoIs owner
+    # reads only as a hosting company is still named via its PTR hostname.
+    assert u.vpn_provider_from_text("host-01.us1234.nordvpn.com M247 Europe SRL") == "NordVPN"
+    assert u.vpn_provider_from_text("node.protonvpn.net") == "Proton VPN"
+    assert u.vpn_provider_from_text("ec2-1-2-3-4.compute.amazonaws.com") is None

@@ -117,6 +117,13 @@ def _print_tags(keywords, limit=5):
         print("\t " + tag)
 
 
+def _fmt_dt(value):
+    """Trim an ISO timestamp to 'YYYY-MM-DD HH:MM:SS', or 'N/A' if empty."""
+    if not value:
+        return 'N/A'
+    return str(value)[:19].replace('T', ' ')
+
+
 def _extract_common_fields(results, opencti_headers):
     """Extract fields shared across all indicator types."""
     item = results[0]  # use first result for scalar fields
@@ -127,6 +134,10 @@ def _extract_common_fields(results, opencti_headers):
     active        = item['revoked']
     confidence    = item['confidence']
     malicious_score = item['x_opencti_score']
+
+    # First/last seen — STIX validity window, falling back to created/modified.
+    first_seen = _fmt_dt(item.get('valid_from') or item.get('created'))
+    last_seen  = _fmt_dt(item.get('valid_until') or item.get('modified'))
 
     # TLP — from objectMarking across all results
     tlp = 'Clear'
@@ -140,11 +151,12 @@ def _extract_common_fields(results, opencti_headers):
         for label in r.get('objectLabel', []):
             keywords.append(label['value'])
 
-    return link_url, source, active, confidence, malicious_score, tlp, keywords
+    return (link_url, source, active, confidence, malicious_score, tlp,
+            keywords, first_seen, last_seen)
 
 
 def print_opencti_ip_results(opencti_ip_results, suspect_indicator, countries, opencti_headers):
-    link_url, source, active, confidence, malicious_score, tlp, keywords = \
+    link_url, source, active, confidence, malicious_score, tlp, keywords, first_seen, last_seen = \
         _extract_common_fields(opencti_ip_results, opencti_headers)
 
     print(color.UNDERLINE + '\nOpenCTI Info:' + color.END + " " + suspect_indicator)
@@ -152,13 +164,15 @@ def print_opencti_ip_results(opencti_ip_results, suspect_indicator, countries, o
     _print_malicious(malicious_score)
     _print_confidence(confidence)
     print('\t{:<25} {}'.format('Source:', source))
+    print('\t{:<25} {}'.format('First Seen:', first_seen))
+    print('\t{:<25} {}'.format('Last Seen:', last_seen))
     _print_tags(keywords)
     _print_tlp(tlp)
     print('\t{:<25}'.format(link_url))
 
 
 def print_opencti_domain_results(opencti_domain_results, opencti_headers, suspect_indicator=None):
-    link_url, source, active, confidence, malicious_score, tlp, keywords = \
+    link_url, source, active, confidence, malicious_score, tlp, keywords, first_seen, last_seen = \
         _extract_common_fields(opencti_domain_results, opencti_headers)
 
     label = suspect_indicator or ''
@@ -168,13 +182,15 @@ def print_opencti_domain_results(opencti_domain_results, opencti_headers, suspec
     _print_malicious(malicious_score)
     _print_confidence(confidence)
     print('\t{:<25} {}'.format('Source:', source))
+    print('\t{:<25} {}'.format('First Seen:', first_seen))
+    print('\t{:<25} {}'.format('Last Seen:', last_seen))
     _print_tags(keywords)
     _print_tlp(tlp)
     print('\t{:<25}'.format(link_url))
 
 
 def print_opencti_hash_results(opencti_hash_results, suspect_indicator, opencti_headers):
-    link_url, source, active, confidence, malicious_score, tlp, keywords = \
+    link_url, source, active, confidence, malicious_score, tlp, keywords, first_seen, last_seen = \
         _extract_common_fields(opencti_hash_results, opencti_headers)
 
     # Determine if pattern is a YARA rule or just a hash pattern
@@ -189,6 +205,8 @@ def print_opencti_hash_results(opencti_hash_results, suspect_indicator, opencti_
     _print_malicious(malicious_score)
     _print_confidence(confidence)
     print('\t{:<25} {}'.format('Source:', source))
+    print('\t{:<25} {}'.format('First Seen:', first_seen))
+    print('\t{:<25} {}'.format('Last Seen:', last_seen))
     _print_tags(keywords)
     _print_tlp(tlp)
     print('\t{:<25} {}'.format('Rule:', rule))
@@ -210,13 +228,15 @@ def print_opencti_url_results(opencti_url_results, suspect_indicator, opencti_he
     if opencti_headers is None:
         return
 
-    link_url, source, active, confidence, malicious_score, tlp, keywords = \
+    link_url, source, active, confidence, malicious_score, tlp, keywords, first_seen, last_seen = \
         _extract_common_fields(url_results, opencti_headers)
 
     _print_active(active)
     _print_malicious(malicious_score)
     _print_confidence(confidence)
     print('\t{:<25} {}'.format('Source:', source))
+    print('\t{:<25} {}'.format('First Seen:', first_seen))
+    print('\t{:<25} {}'.format('Last Seen:', last_seen))
     _print_tags(keywords)
     _print_tlp(tlp)
     print('\t{:<25}'.format(link_url))

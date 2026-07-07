@@ -5,6 +5,7 @@ import ipaddress
 import os
 import re
 import requests
+import socket
 import threading
 import time
 import warnings
@@ -504,7 +505,14 @@ _VPN_PROVIDERS = [
     ("hide.me", "hide.me"),
     ("perfect privacy", "Perfect Privacy"),
     ("azirevpn", "AzireVPN"),
-    ("ovpn.com", "OVPN"),
+    ("ovpn.com", "OVPN"), ("ovpn", "OVPN"),
+    ("strongvpn", "StrongVPN"),
+    ("tunnelbear", "TunnelBear"),
+    ("airvpn", "AirVPN"),
+    ("hidemyass", "HideMyAss"),
+    ("keepsolid", "VPN Unlimited"), ("vpnunlimited", "VPN Unlimited"),
+    ("cryptostorm", "cryptostorm"),
+    ("datapacket", "DataPacket (VPN hosting)"),
     ("vpn", "VPN provider"),
 ]
 
@@ -522,28 +530,33 @@ def vpn_provider_from_text(text):
 
 
 def check_vpn(suspect_ip, org_text=None):
-    """Check if an IP is a VPN and print the result (colour-coded orange).
+    """Check if an IP is a VPN and print the result (orange, with provider name).
 
-    Two signals: the X4BNet VPN IP-range list, and — when `org_text` (the WhoIs
-    Organization / ASN description) is supplied — a known-VPN-provider name match,
-    which catches IPs the list misses (e.g. NordVPN / Tefincom).
+    Signals, in order of fidelity:
+      1. X4BNet VPN IP-range list membership.
+      2. A known VPN-provider name in the reverse-DNS (PTR) hostname — this often
+         names the provider even when WhoIs shows only the hoster (e.g. M247).
+      3. A known VPN-provider name in the WhoIs Organization / ASN text.
 
     Sample output:
-        VPN Provider: Yes (NordVPN — WhoIs org)
+        VPN Provider: Yes (NordVPN)
     """
-    if is_vpn_ip(suspect_ip):
+    in_list = is_vpn_ip(suspect_ip)
+
+    ptr = None
+    try:
+        ptr = socket.gethostbyaddr(suspect_ip.strip())[0]
+    except Exception:
+        ptr = None
+
+    provider = vpn_provider_from_text(" ".join(x for x in (ptr, org_text) if x))
+
+    if in_list or provider:
+        label = "Yes (" + provider + ")" if provider else "Yes"
         print("\t{:<34} {}".format(color.ORANGE + 'VPN Provider:' + color.END,
-                                   color.ORANGE + 'Yes' + color.END))
-        return
-
-    provider = vpn_provider_from_text(org_text)
-    if provider:
-        print("\t{:<34} {}".format(
-            color.ORANGE + 'VPN Provider:' + color.END,
-            color.ORANGE + 'Yes (' + provider + ' — WhoIs org)' + color.END))
-        return
-
-    print("\t{:<25} {}".format('VPN Provider:', "No"))
+                                   color.ORANGE + label + color.END))
+    else:
+        print("\t{:<25} {}".format('VPN Provider:', "No"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -660,6 +673,20 @@ def refang(value):
     s = re.sub(r'(?i)\[at\]|\(at\)|\{at\}', '@', s)          # [at] (at) {at}
     s = s.replace('[://]', '://').replace('[:]', ':').replace('[/]', '/')
     return s.strip()
+
+
+def print_scan_header(value):
+    """Print a clear separator/banner marking the start of a new indicator's
+    report, so consecutive lookups are easy to tell apart on screen."""
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    bar = '=' * 74
+    disp = (value or '').strip()
+    if len(disp) > 58:
+        disp = disp[:55] + '...'
+    print('\n\n' + color.CYAN + bar + color.END)
+    print(color.BOLD + color.CYAN + 'SCAN' + color.END + color.BOLD + ':  ' + disp
+          + color.END + color.CYAN + '   (' + ts + ')' + color.END)
+    print(color.CYAN + bar + color.END)
 
 
 def get_clipboard_contents():

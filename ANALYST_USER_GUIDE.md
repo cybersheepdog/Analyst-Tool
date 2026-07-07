@@ -24,6 +24,9 @@ the tool re-fangs them automatically before looking them up.
 
 ### Reading the output
 
+- **Each report starts with a separator banner** — a line of `====` with the
+  indicator and a timestamp (`SCAN:  45.145.66.165   (2026-06-29 14:30:01)`) — so
+  it's obvious where one lookup ends and the next begins.
 - **Colors flag severity.** Red = high / notable-bad, orange = medium, green =
   noteworthy (e.g. a Tor exit node or a detected beacon). Headings are underlined
   or bold.

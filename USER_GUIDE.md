@@ -363,6 +363,10 @@ automatically. Detection is evaluated in this order (the first match wins):
 
 Two behaviours apply to all of the above:
 
+- **Separator banner** — every recognized indicator's report is preceded by a
+  cyan `====` banner showing the indicator and a timestamp
+  (`SCAN:  45.145.66.165   (2026-06-29 14:30:01)`), so there is a clear break
+  between one lookup's output and the next.
 - **Refang on input** — defanged indicators copied from reports (e.g.
   `hxxps://evil[.]com`, `8[.]8[.]8[.]8`, `bad(dot)com`, `user[at]evil[.]com`) are
   automatically re-fanged before detection, so they're recognized normally.
@@ -386,17 +390,20 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
   settings when available).
 - **WhoIs** — organization, CIDR, IP range, country, and associated abuse emails.
 - **Tor exit-node check** — whether the IP is a known Tor exit node.
-- **VPN-provider check** — whether the IP is a VPN, via the X4BNet VPN IP-range
-  list **or** a WhoIs Organization/ASN match against known VPN providers
-  (NordVPN, Mullvad, Proton, ExpressVPN, …). No API key. A match is orange and
-  names the provider when known. The org match catches IPs the list misses.
+- **VPN-provider check** — whether the IP is a VPN, using three signals: the
+  X4BNet VPN IP-range list, a reverse-DNS (PTR) hostname match, **and** a WhoIs
+  Organization/ASN match against known VPN providers (NordVPN, Mullvad, Proton,
+  ExpressVPN, …). No API key. A match is orange and names the provider —
+  e.g. `VPN Provider: Yes (NordVPN)`. The PTR and org signals catch IPs the list
+  misses (e.g. a NordVPN node whose WhoIs owner shows only as a hosting company).
 - **Datacenter/hosting check** — whether the IP is in known datacenter/hosting
   space (X4BNet list, no API key). Useful since most VPNs/proxies are hosted.
 - **AbuseIPDB** — abuse confidence score, total reports, last reported date, distinct
   reporters, usage type, and domain.
 - **AlienVault OTX** — related pulse count, reputation, passive DNS, and trusted-author
   highlights.
-- **OpenCTI** — active/revoked status, malicious score, confidence, source, tags, and TLP.
+- **OpenCTI** — active/revoked status, malicious score, confidence, source,
+  first-seen / last-seen dates, tags, and TLP.
 - **C2Live** — whether the IP appears in your tracked command-and-control data, and which
   frameworks, with first/last seen dates.
 

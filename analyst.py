@@ -207,6 +207,10 @@ def analyst(terminal=0):
                         time.sleep(3)
                         continue
 
+                    # Clear separator banner before a recognized indicator's report.
+                    if _is_recognized_indicator(clipboard_contents, lolbas, driver):
+                        print_scan_header(clipboard_contents)
+
                     # ── Hash ──────────────────────────────────────────────────────────────
                     if re.match(hash_validation_regex, clipboard_contents):
                         suspect_hash = clipboard_contents
@@ -477,6 +481,38 @@ def _handle_command(body, cache, last_indicator):
     else:
         print("\t[cmd] Unknown command '%s'. Try note / tag / note-rm." % verb)
     return last_indicator
+
+
+def _is_recognized_indicator(value, lolbas, driver):
+    """True if `value` would be handled by a lookup branch below. Used to print
+    the separator banner only for real indicators, not arbitrary copied text."""
+    try:
+        if re.match(hash_validation_regex, value):
+            return True
+        if re.match(port_wid_validation_regex, value):
+            return True
+        if get_lolbas_file_endings(lolbas, value):
+            return True
+        if get_loldriver_file_endings(driver, value):
+            return True
+        if re.match(cve_regex, value, re.IGNORECASE):
+            return True
+        if validators.domain(value) == True:
+            return True
+        if validators.url(value) == True:
+            return True
+        if re.match(mitre_regex, value):
+            return True
+        if re.match(epoch_regex, value):
+            return True
+        if re.match(otx_pulse_regex, value):
+            return True
+        if re.match(ipv6_regex, value):
+            return True
+        ipaddress.IPv4Address(value)
+        return True
+    except Exception:
+        return False
 
 
 def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
