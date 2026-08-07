@@ -15,11 +15,27 @@ reference, see `USER_GUIDE.md`.
 |------|------|
 | `analyst_tool_cache.py` | New module: the SQLite/PostgreSQL cache backends, the capture/replay logic, usage counters, and the per-user check log + multi-user notice. |
 | `analyst.py` | Wired the cache in: it initializes the cache, records each check, prints the multi-user notice, and serves cached results. |
-| `config.ini` | New `[CACHE]` section controls everything below. |
-| `requirements.txt` | Adds `psycopg2-binary` (only needed for the remote PostgreSQL backend). |
+| `analyst_tool_shared_config.py` | New module: `load_config()` (remote-first, local-fallback for API keys) plus optional envelope encryption and an admin CLI to manage the shared keys. The service modules read their keys through it. |
+| `config.ini` | New `[CACHE]` section controls everything below; new `[SHARED_CONFIG]` section holds the optional encryption passphrase source. |
+| `requirements.txt` | Adds `psycopg2-binary` (remote PostgreSQL backend) and `cryptography` (only needed to encrypt shared keys). |
 
 No existing functionality changed. With `[CACHE] enabled = false`, the tool
-behaves exactly as before.
+behaves exactly as before. Shared API keys are inactive unless `backend = remote`
+and keys have been stored in the database; otherwise each service uses the local
+`config.ini` key exactly as before.
+
+### Shared API keys (remote backend)
+
+A team can store API keys once in the shared database instead of in every
+`config.ini`. `load_config()` reads the local file first, then overlays any
+whitelisted API-key values found in the `shared_config` table (remote wins,
+local is the fallback). It fails safe: if the remote backend isn't selected, the
+driver is missing, or the server is unreachable, the local keys are used.
+
+Optionally the values are encrypted at rest with a passphrase from
+`ANALYST_SHARED_KEY` (or a local `key_file`) — see the securing-the-keys section
+of `ADMIN_REMOTE_SERVER_GUIDE.md`. Seed and manage them with
+`analyst_tool_shared_config.py` (`import-local`, `set`, `list`, `delete`).
 
 ### How it works in one paragraph
 

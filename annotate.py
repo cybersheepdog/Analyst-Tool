@@ -9,6 +9,8 @@ Examples:
     python annotate.py add 45.145.66.165 "confirmed phishing C2, case #1487" --tags phishing,c2
     python annotate.py list 45.145.66.165
     python annotate.py rm 45.145.66.165
+    python annotate.py find "#c2"
+    python annotate.py history --team -n 50
 
 The author is the [CACHE] user from config.ini, or your OS login name if unset.
 See NOTE_COMMANDS.md for the full reference.
@@ -73,6 +75,16 @@ def main():
     p_rm = sub.add_parser("rm", help="remove YOUR notes for an indicator")
     p_rm.add_argument("indicator")
 
+    p_find = sub.add_parser("find", help="search notes/tags, e.g. find '#c2' or find phishing")
+    p_find.add_argument("query", nargs="+",
+                        help="words match note text/indicator/tags; #tag matches a whole tag")
+
+    p_hist = sub.add_parser("history", help="show recent lookups (yours by default)")
+    p_hist.add_argument("--team", action="store_true",
+                        help="show everyone's lookups, not just yours")
+    p_hist.add_argument("-n", "--limit", type=int, default=20,
+                        help="how many rows to show (default 20)")
+
     p_excl = sub.add_parser("exclude", help="manage the shared domain exclusion list")
     esub = p_excl.add_subparsers(dest="ecmd", required=True)
     esub.add_parser("list", help="show the shared exclusion list")
@@ -96,6 +108,10 @@ def main():
         cache.print_team_notes(args.indicator, _guess_type(args.indicator))
     elif args.cmd == "rm":
         cache.remove_my_notes(args.indicator, _guess_type(args.indicator))
+    elif args.cmd == "find":
+        cache.find_annotations(" ".join(args.query))
+    elif args.cmd == "history":
+        cache.print_history(("team " if args.team else "") + str(args.limit))
     elif args.cmd == "exclude":
         if args.ecmd == "add":
             cache.add_exclusion(_host(args.domain))

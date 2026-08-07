@@ -158,6 +158,48 @@ appears. With the shared database:
 
 ---
 
+## Optional — shared API keys
+
+When you're on the remote backend, the tool can also pull **API keys** from the
+shared database, so the team maintains one set of keys instead of everyone
+pasting the same keys into their own `config.ini`.
+
+How it resolves keys (remote-first, local-fallback):
+
+1. Your local `config.ini` is read as the base.
+2. For a fixed whitelist of API-key fields (VirusTotal, AbuseIPDB, Shodan,
+   AlienVault OTX, OpenCTI, C2Live, NVD/CVE), any value stored in the shared
+   database **overrides** your local one.
+3. If the database is unreachable, or a key isn't stored there, your local value
+   is used. Nothing breaks when the shared keys aren't available.
+
+You don't need to do anything to consume shared keys — if your admin has stored
+them, they're used automatically. You can leave the API-key fields in your local
+`config.ini` blank, or keep personal keys there as a fallback.
+
+Only credential fields are shared. Personal settings — your `user` identity,
+report directory, TLS policy, and so on — always stay local.
+
+To see what's stored centrally (needs the same DB credentials):
+
+```
+python analyst_tool_shared_config.py list
+```
+
+**If your team encrypts the shared keys** (recommended), your admin will give
+you a passphrase. Put it in the `ANALYST_SHARED_KEY` environment variable (or a
+local file named in the `[SHARED_CONFIG] key_file` setting) and install the
+`cryptography` package (`pip install cryptography`). Without the passphrase the
+encrypted keys can't be decrypted and the tool falls back to whatever you have
+set locally. The passphrase is never stored in the database — keep it somewhere
+only you can read.
+
+**Encrypt your connection too.** When the database holds shared keys, set
+`sslmode = require` (or `verify-full`) in `[CACHE]` rather than the default
+`prefer`, which can silently connect unencrypted.
+
+---
+
 ## Network requirements
 
 You must be able to reach the database server on its port (default `5432`):

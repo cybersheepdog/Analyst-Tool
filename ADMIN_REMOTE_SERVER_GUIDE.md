@@ -153,6 +153,69 @@ Give each analyst:
 
 ---
 
+## 6a. (Optional) Store shared API keys centrally
+
+Instead of every analyst pasting the same API keys into their local
+`config.ini`, you can store them once in the database. Analysts on the remote
+backend then load them automatically (remote-first, with their local values as
+fallback). This uses a `shared_config` table, created automatically on first use
+(and included in `schema.sql`).
+
+Run these from any machine that can reach the database and has the `[CACHE]`
+credentials set in its `config.ini`:
+
+```bash
+# Push the keys already in your local config.ini up to the database:
+python analyst_tool_shared_config.py import-local
+
+# Or set individual keys explicitly:
+python analyst_tool_shared_config.py set VIRUS_TOTAL x-apikey <APIKEY>
+python analyst_tool_shared_config.py set ABUSE_IP_DB key <APIKEY>
+python analyst_tool_shared_config.py set SHODAN shodan_api_key <APIKEY>
+
+# Review (values are masked) or remove:
+python analyst_tool_shared_config.py list
+python analyst_tool_shared_config.py delete SHODAN shodan_api_key
+```
+
+Only recognised credential fields are accepted: AbuseIPDB `key`, VirusTotal
+`x-apikey`, AlienVault OTX `otx_api_key`, OpenCTI `opencti_api_url` /
+`opencti_api_token` / `opencti_base_url`, C2Live `c2_live_url` / `c2_live_index`,
+Shodan `shodan_api_key`, and CVE `nvd_api_key`. Rotating a provider key is a
+one-line `set` — every analyst picks it up on their next run, no redistribution
+needed.
+
+### Securing the shared keys
+
+By default the values are stored as **plaintext** (like the cache tables), and
+PostgreSQL does not encrypt table data at rest. For sensitive keys, layer on:
+
+1. **Encrypt in transit.** Set `sslmode = require` (or `verify-full` with the
+   server CA) in every analyst's `[CACHE]` section, and make sure the server has
+   TLS enabled. `prefer` can silently fall back to an unencrypted connection.
+
+2. **Encrypt at rest (recommended).** Give every analyst the same passphrase via
+   the `ANALYST_SHARED_KEY` environment variable (or a local `key_file` named in
+   `[SHARED_CONFIG]`). The tool then encrypts each value (Fernet / AES) before
+   storing and decrypts on read, so the database and its backups only ever hold
+   ciphertext. The passphrase is never stored in the database — distribute it
+   out-of-band, once. Requires `pip install cryptography`. Set the passphrase
+   before running `import-local`/`set` so the values are written encrypted; run
+   `list` to confirm each shows `encrypted` rather than `PLAINTEXT`.
+
+3. **Least privilege.** Split writes from reads so a compromised analyst login
+   can read the keys (needed) but can't tamper with them. See the optional
+   "2a) OPTIONAL hardening" block in `server_setup/schema.sql`, which creates an
+   `analyst_admin` role that owns `shared_config` and leaves `analyst_app` with
+   SELECT only. Run the management commands with the admin credentials.
+
+4. **Prefer a secrets manager for high-value keys.** If you already run Vault,
+   AWS/Azure secrets manager, or similar, that remains the most secure home for
+   the keys (managed encryption, per-identity access, audit, rotation). The DB
+   approach trades some of that for zero extra infrastructure.
+
+---
+
 ## 7. Verify end-to-end
 
 From an analyst machine **inside the allowed CIDR**:

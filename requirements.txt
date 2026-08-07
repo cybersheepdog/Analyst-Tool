@@ -11,6 +11,10 @@ pyperclip
 # psycopg2-binary is only required for the remote (PostgreSQL) cache backend.
 # The default local SQLite cache uses the Python standard library and needs nothing extra.
 psycopg2-binary
+# cryptography is OPTIONAL: only needed to encrypt the shared API keys stored in
+# the remote database (set ANALYST_SHARED_KEY). Without a passphrase, shared keys
+# are stored/read as plaintext and this package isn't required.
+cryptography
 # dnspython is OPTIONAL: it enables MX/NS records in the domain DNS lookup.
 # A/AAAA, PTR, and crt.sh subdomains work without it (standard library + requests).
 dnspython

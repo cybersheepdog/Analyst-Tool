@@ -8,6 +8,7 @@ from configparser import ConfigParser
 
 # Custom Imports
 from analyst_tool_utilities import *
+from analyst_tool_shared_config import load_config
 
 # PERFORMANCE MODIFICATION: per-thread Session for HTTP keep-alive connection reuse.
 _thread_local = threading.local()
@@ -86,14 +87,13 @@ def create_abuse_ip_db_headers_from_config():
 
     Returns the header dict, or None if not configured.
     """
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        abuse_headers = config_object["ABUSE_IP_DB"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    abuse_headers = config_object["ABUSE_IP_DB"]
     if abuse_headers['key']:
         abuse_ip_db_headers = {
             'Accept': abuse_headers['accept'],

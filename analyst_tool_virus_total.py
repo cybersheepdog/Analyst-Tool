@@ -11,6 +11,7 @@ from configparser import ConfigParser
 
 # Custom Imports
 from analyst_tool_utilities import *
+from analyst_tool_shared_config import load_config
 
 # PERFORMANCE MODIFICATION: per-thread Session for HTTP keep-alive connection reuse.
 # Each thread gets its own Session (thread-safe), avoiding repeated TCP handshakes.
@@ -48,14 +49,13 @@ def create_virus_total_headers_from_config():
 
     Returns virus_total_headers dict, or None if not configured.
     """
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        virus_total = config_object["VIRUS_TOTAL"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    virus_total = config_object["VIRUS_TOTAL"]
     if virus_total['x-apikey']:
         virus_total_headers = {
             'Accept': virus_total['accept'],
@@ -71,14 +71,13 @@ def create_virus_total_headers_from_config():
 
 def get_vt_user_from_config():
     """Reads the VT username from config.ini for API quota notifications."""
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        vt = config_object["VIRUS_TOTAL"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    vt = config_object["VIRUS_TOTAL"]
     if vt['user']:
         vt_user = vt['user']
         print('VirusTotal API usage alerts enabled for ' + vt_user)

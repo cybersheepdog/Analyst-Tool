@@ -93,8 +93,12 @@ Then enable remote access (section 3 of `schema.sql`) and restart PostgreSQL.
 
 ## Security notes
 
-- The app role is the least-privileged login that owns only its two tables.
+- The app role is the least-privileged login that owns its cache tables.
 - Passwords are stored as SCRAM-SHA-256 hashes and never written to disk by the
   script (the generated password is printed once — store it in a secret manager).
 - Prefer the narrowest `--allow-cidr` that covers your analysts, and set
   `sslmode = require` in the analysts' config if the server has TLS configured.
+- If you also store **shared API keys** in the database (`shared_config` table),
+  encrypt them at rest with a passphrase (`ANALYST_SHARED_KEY`) and consider the
+  optional read-only key role in `schema.sql` (section 2a). See the
+  "Securing the shared keys" section of `ADMIN_REMOTE_SERVER_GUIDE.md`.

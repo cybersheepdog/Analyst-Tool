@@ -6,17 +6,17 @@ from shodan import Shodan
 
 # Custom Imports
 from analyst_tool_utilities import *
+from analyst_tool_shared_config import load_config
 
 def get_shodan_from_config():
     """Read the Shodan API key from config.ini and return a header dict, or None."""
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        shodan_cfg = config_object["SHODAN"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    shodan_cfg = config_object["SHODAN"]
     if shodan_cfg['shodan_api_key']:
         print("Shodan Configured.")
         return {"api-key": shodan_cfg['shodan_api_key']}

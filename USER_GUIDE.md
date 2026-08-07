@@ -163,7 +163,61 @@ sslmode = prefer
 | `exclusion_refresh_minutes` | How often to re-pull the shared domain-exclusion list from the DB so a teammate's `>>exclude` propagates without a restart. Default `5`. |
 | `host`, `port`, `dbname`, `db_user`, `password`, `sslmode` | PostgreSQL connection settings (remote backend only). Note the connection user is `db_user` — `user` above is the analyst identity. |
 
+For `sslmode`, prefer `require` (encrypt with no fallback) or `verify-full` (encrypt + verify the server certificate) over the default `prefer`, which will silently connect **unencrypted** if the server doesn't offer TLS — important when the database holds shared secrets. Use `require`/`verify-full` only once the server has TLS enabled.
+
 See [Result caching](#result-caching-save-api-calls-local-or-remote) for full behavior. The remote backend needs the `psycopg2-binary` package (already in `requirements.txt`); the local backend needs nothing beyond the standard library.
+
+### `[SHARED_CONFIG]` — shared API keys (remote backend)
+
+When `backend = remote`, the tool can load API keys from the shared database
+**first**, falling back to whatever you set locally. This lets a team maintain
+one set of keys instead of pasting them into every machine. Only credential
+fields are shared (AbuseIPDB `key`, VirusTotal `x-apikey`, OTX `otx_api_key`,
+OpenCTI url/token, C2Live url/index, Shodan `shodan_api_key`, CVE `nvd_api_key`);
+identities, paths, and other settings always stay local. With `backend = local`,
+nothing changes — only your local keys are used.
+
+```ini
+[SHARED_CONFIG]
+key_file =
+```
+
+| Key | Purpose |
+|-----|---------|
+| `key_file` | (Optional) Path to a local file holding the passphrase used to **encrypt** the shared keys at rest. Checked only if the `ANALYST_SHARED_KEY` environment variable isn't set. Leave blank (and don't set the env var) to store/read shared keys as plaintext. |
+
+Encryption is opt-in: set the same passphrase on every analyst's machine (via
+`ANALYST_SHARED_KEY` or `key_file`) and install `cryptography`. Keys are then
+encrypted (Fernet/AES) before storage and decrypted on read; the passphrase is
+never stored in the database. Manage the shared keys with:
+
+```bash
+python analyst_tool_shared_config.py import-local        # push local keys up
+python analyst_tool_shared_config.py set SHODAN shodan_api_key <APIKEY>
+python analyst_tool_shared_config.py list                # shows encrypted / PLAINTEXT
+python analyst_tool_shared_config.py delete SHODAN shodan_api_key
+```
+
+See [ANALYST_REMOTE_DB_GUIDE.md](ANALYST_REMOTE_DB_GUIDE.md) (consuming keys) and
+[ADMIN_REMOTE_SERVER_GUIDE.md](ADMIN_REMOTE_SERVER_GUIDE.md) (storing/securing
+them, including the optional read-only key role).
+
+### `[REPORT]` — ticket-ready report export
+
+```ini
+[REPORT]
+dir = reports
+format = markdown
+defang = true
+max_kept = 20
+```
+
+| Key | Purpose |
+|-----|---------|
+| `dir` | Where `>>report` writes files (created if missing, gitignored). Default `reports`. |
+| `format` | `markdown` (fenced code block — renders in Jira/ServiceNow/GitHub) or `text` (plain, banner separators). |
+| `defang` | Defang the reported indicators in the export (`8[.]8[.]8[.]8`, `hxxp://`) so it's safe to paste anywhere. Only the indicators are defanged, not all text. Default `true`. |
+| `max_kept` | How many recent reports stay in memory for `>>report N` (max 100). Default `20`. |
 
 ### `[ABUSE_IP_DB]` — AbuseIPDB
 
@@ -564,8 +618,30 @@ Lookups are unchanged — only clipboard lines starting with the `command_prefix
 
 A bare `>>note` (or `>>note <text>`) attaches to your **last** lookup. There's also
 a `python annotate.py add/list/rm` CLI for clipboard-free entry. Tags are
-colour-coded (malicious-type tags red, `fp`/`benign` green). Full reference with
-examples: [NOTE_COMMANDS.md](NOTE_COMMANDS.md).
+colour-coded (malicious-type tags red, `fp`/`benign` green).
+
+Saved notes are searchable, and the shared check log doubles as a lookup history:
+
+```
+>>find #c2                    every indicator tagged c2 (team-wide)
+>>find phishing #fp           text and tag terms combine (AND)
+>>history                     your last 20 lookups
+>>history team 50             everyone's last 50 (shows who)
+```
+
+And when the investigation is done, `>>report` exports the last lookup(s) —
+verdict and all service sections, ANSI colours stripped, indicators defanged —
+to a ticket-ready markdown file (or the clipboard):
+
+```
+>>report                      save the last lookup to reports/<date>_<indicator>.md
+>>report 3                    the last 3 lookups in one file
+>>report clip                 copy it to the clipboard for pasting into a ticket
+```
+
+Output directory, markdown/text format, and defanging are configurable under
+`[REPORT]` in `config.ini`. Full reference with examples:
+[NOTE_COMMANDS.md](NOTE_COMMANDS.md).
 
 ### Forcing a fresh lookup
 

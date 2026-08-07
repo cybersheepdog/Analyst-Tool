@@ -27,6 +27,7 @@ from analyst_tool_c2live import get_c2live_config, query_c2live
 from analyst_tool_cve import cve_regex, print_cve_info, get_cisa_kev, get_nvd_key_from_config
 from analyst_tool_dns import print_dns_and_crt
 from analyst_tool_portwevid import print_port_and_wevid
+from analyst_tool_report import get_report_buffer, record_report
 from analyst_tool_lols import *
 from analyst_tool_mitre import *
 from analyst_tool_opencti import *
@@ -359,18 +360,23 @@ def _run_parallel_capture(tasks, max_workers=None):
     return results
 
 
-def _run_with_verdict(indicator_type, tasks, max_workers=None):
+def _run_with_verdict(indicator_type, tasks, max_workers=None, indicator=None):
     """Run the report tasks, print a one-line verdict, then the detail.
 
     Falls back to the original streaming behaviour if anything in the capture/
-    verdict path fails, so a report is never lost.
+    verdict path fails, so a report is never lost. When `indicator` is given,
+    the finished report (verdict + detail) is also kept in the in-memory
+    report buffer so `>>report` can export it later.
     """
     try:
         from analyst_tool_verdict import build_verdict
         texts = _run_parallel_capture(tasks, max_workers)
         combined = "".join(texts)
-        print(build_verdict(indicator_type, combined))
+        verdict = build_verdict(indicator_type, combined)
+        print(verdict)
         print(combined, end="")
+        if indicator:
+            record_report(indicator, indicator_type, verdict + "\n" + combined)
     except Exception:
         _run_parallel(tasks, max_workers)
 
@@ -427,7 +433,9 @@ def _handle_command(body, cache, last_indicator):
     parts = body.split(None, 1)
     if not parts:
         print("\t[cmd] usage: >>note <indicator?> <text>  |  "
-              ">>tag <indicator> <tags>  |  >>note-rm <indicator>")
+              ">>tag <indicator> <tags>  |  >>note-rm <indicator>  |  "
+              ">>find <text/#tags>  |  >>history [N] [team]  |  "
+              ">>report [N] [clip]")
         return last_indicator
     verb = parts[0].lower()
     rest = parts[1].strip() if len(parts) > 1 else ""
@@ -478,8 +486,19 @@ def _handle_command(body, cache, last_indicator):
             print("\t[exclude-rm] usage: >>exclude-rm <domain>")
     elif verb in ('exclude-list', 'exclusions', 'excl-list'):
         cache.print_exclusions()
+    elif verb in ('history', 'hist'):
+        # >>history [N] [team] — your (or everyone's) recent lookups.
+        cache.print_history(rest)
+    elif verb in ('report', 'rpt'):
+        # >>report [N] [clip] — export the last N lookups to a ticket-ready
+        # file (or the clipboard with 'clip').
+        get_report_buffer().export(rest, username=cache.username)
+    elif verb in ('find', 'search'):
+        # >>find <text and/or #tags> — search the shared notes/tags.
+        cache.find_annotations(rest)
     else:
-        print("\t[cmd] Unknown command '%s'. Try note / tag / note-rm." % verb)
+        print("\t[cmd] Unknown command '%s'. Try note / tag / note-rm / "
+              "find / history / report / exclude." % verb)
     return last_indicator
 
 
@@ -565,7 +584,7 @@ def _lookup_hash_parallel(suspect_hash, virus_total_headers, vt_user,
         else:
             _otx_live()
 
-    _run_with_verdict('hash', [_vt, _opencti, _otx])
+    _run_with_verdict('hash', [_vt, _opencti, _otx], indicator=suspect_hash)
 
 
 def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
@@ -618,7 +637,8 @@ def _lookup_domain_parallel(suspect_domain, virus_total_headers, vt_user,
         # DNS resolution + crt.sh — live (not an API-keyed/rate-limited service).
         print_dns_and_crt(suspect_domain)
 
-    _run_with_verdict('domain', [_vt, _opencti, _otx, _dns])
+    _run_with_verdict('domain', [_vt, _opencti, _otx, _dns],
+                      indicator=suspect_domain)
 
 
 def _lookup_url_parallel(suspect_url, virus_total_headers,
@@ -663,7 +683,7 @@ def _lookup_url_parallel(suspect_url, virus_total_headers,
         else:
             _otx_live()
 
-    _run_with_verdict('url', [_vt, _opencti, _otx])
+    _run_with_verdict('url', [_vt, _opencti, _otx], indicator=suspect_url)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -784,7 +804,7 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
             _cc('otx', _otx_live)
 
     _run_with_verdict('ip', [_opencti, _vt, _shodan, _whois_tor, _abuseipdb, _otx],
-                      max_workers=6)
+                      max_workers=6, indicator=suspect_ip)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

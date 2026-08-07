@@ -32,6 +32,11 @@ You can enter notes three ways — pick whichever is comfortable:
 | `>>note` | Prompt for a note on your **last** lookup |
 | `>>tag <indicator> <tag1> <tag2>` | Add tags only (no note text) |
 | `>>note-rm <indicator>` | Remove **your** notes for an indicator |
+| `>>find <text and/or #tags>` | Search all notes/tags, e.g. `>>find #c2` |
+| `>>history [N] [team]` | Your (or everyone's) recent lookups |
+| `>>report [N] [clip]` | Export the last N lookups to a ticket-ready file (or clipboard) |
+| `python annotate.py find "<query>"` | Search notes via CLI |
+| `python annotate.py history [--team] [-n N]` | Recent lookups via CLI |
 | `python annotate.py add <indicator> "<text>" [--tags a,b]` | Add a note via CLI |
 | `python annotate.py list <indicator>` | Show notes via CLI |
 | `python annotate.py rm <indicator>` | Remove your notes via CLI |
@@ -136,7 +141,83 @@ Or via the CLI: `python annotate.py rm 45.145.66.165`.
 
 ---
 
-## 6. The CLI (`annotate.py`)
+## 6. Searching notes & your lookup history
+
+Notes are only useful if you can get back to them. Two commands query the
+shared database:
+
+**`>>find`** searches every note in the database. Plain words match the note
+text, the indicator, or the tags as case-insensitive substrings; a `#tag` term
+must match a whole stored tag. Multiple terms narrow the search (AND).
+
+```
+>>find #c2                      every indicator tagged c2
+>>find phishing #fp             notes mentioning "phishing" AND tagged fp
+>>find 45.145.                  notes on indicators containing "45.145."
+>>find case 1487                notes mentioning both words
+```
+
+Results print newest first, grouped by indicator, with author, date and
+colour-coded tag pills — the same format as the TEAM NOTES block. On a shared
+remote database this searches the **whole team's** notes.
+
+**`>>history`** shows recent lookups from the shared check log — handy for
+"what was that IP I checked this morning?" or for writing up a shift:
+
+```
+>>history            your last 20 lookups
+>>history 50         your last 50
+>>history team       everyone's recent lookups (shows who)
+>>history team 50    both, in either order
+```
+
+Note: rapid re-copies of the same indicator within `check_dedup_minutes`
+(default 60) are logged once, so history reflects distinct lookups.
+
+Both are also available from the CLI:
+
+```bash
+python annotate.py find "#c2"
+python annotate.py find "phishing #fp"
+python annotate.py history --team -n 50
+```
+
+---
+
+## 7. Exporting a report for your ticket (`>>report`)
+
+When you finish a lookup, the findings live only in your terminal scrollback.
+`>>report` writes the last lookup(s) — verdict line and all service sections —
+to a file you can attach or paste into a SIEM ticket or case notes:
+
+```
+>>report              save the LAST lookup to reports/2026-07-10_140233_45.145.66.165.md
+>>report 3            the last 3 lookups in one file (e.g. an alert's IP + domain + hash)
+>>report clip         put it on the clipboard instead — paste straight into the ticket
+>>report 3 clip       both, in either order
+```
+
+The export is cleaned up for sharing: ANSI colours are stripped, and the
+reported indicators are **defanged** (`45[.]145[.]66[.]165`, `hxxps://`) so the
+file is safe to paste anywhere — only the indicators are defanged, so scores,
+dates and prose are untouched. Markdown exports wrap each report in a fenced
+code block, which renders cleanly in Jira / ServiceNow / GitHub-style systems,
+with a header carrying the export time and your analyst name.
+
+IP, domain, URL, and hash lookups (the multi-service reports) are exportable;
+the tool keeps the most recent `max_kept` (default 20) in memory. Configure in
+`config.ini` under `[REPORT]`:
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `dir` | `reports` | Where files are written (created if missing, gitignored). |
+| `format` | `markdown` | `markdown` or `text` (plain, banner separators). |
+| `defang` | `true` | Defang indicators in the export. |
+| `max_kept` | `20` | How many recent reports stay available to `>>report N`. |
+
+---
+
+## 8. The CLI (`annotate.py`)
 
 For bulk or scripted entry, or if you'd rather not use the clipboard for free text:
 
@@ -157,7 +238,7 @@ login name if that's blank.
 
 ---
 
-## 7. Shared domain exclusions
+## 9. Shared domain exclusions
 
 The tool skips lookups for domains you don't want reported (e.g. a reference link
 it printed, or an internal portal). There are two layers:
@@ -193,7 +274,7 @@ python annotate.py exclude rm internal.portal.corp.com
 When you copy an excluded domain/URL, the tool prints a one-line
 `(Skipped — … is in the exclusion list.)` instead of running a lookup.
 
-## 8. Configuration
+## 10. Configuration
 
 In `config.ini` under `[CACHE]`:
 

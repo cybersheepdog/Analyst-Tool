@@ -304,7 +304,16 @@ phishing #c2`), annotate your **last** lookup with a bare `>>note`, add tags onl
 with `>>tag 45.145.66.165 phishing c2`, or remove your own notes with
 `>>note-rm 45.145.66.165`. Inline `#tags` colour-code the indicator for everyone
 (malicious-type tags red, `fp`/`benign` green). There's also an `annotate.py` CLI.
-Full reference: `NOTE_COMMANDS.md`.
+
+To get back to what you (or a teammate) saved: `>>find #c2` searches all
+notes/tags (words match note text, indicator or tags; a `#tag` term matches a
+whole tag), and `>>history` lists your recent lookups — add `team` to see
+everyone's, or a number for more rows (`>>history team 50`).
+
+To document a case, `>>report` saves your last lookup (or `>>report 3` for the
+last three) as a ticket-ready markdown file — colours stripped, indicators
+defanged — and `>>report clip` puts it on the clipboard so you can paste it
+straight into your SIEM ticket. Full reference: `NOTE_COMMANDS.md`.
 
 ## Quick tips
 

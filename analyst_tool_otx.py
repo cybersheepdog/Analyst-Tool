@@ -10,17 +10,17 @@ from configparser import ConfigParser
 # Custom Imports
 from analyst_tool_mitre import *
 from analyst_tool_utilities import *
+from analyst_tool_shared_config import load_config
 
 def create_av_otx_headers_from_config():
     """Create and return an OTXv2 client from config.ini, or None if not configured."""
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        av_headers = config_object["ALIEN_VAULT_OTX"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    av_headers = config_object["ALIEN_VAULT_OTX"]
     if av_headers['otx_api_key']:
         verify = get_ssl_verify_from_config()
         try:
@@ -39,14 +39,13 @@ def create_av_otx_headers_from_config():
 
 def get_otx_intel_list_from_config():
     """Read the OTX intel provider list from config.ini and return as a list."""
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        intel_list = config_object["OTX_INTEL"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    intel_list = config_object["OTX_INTEL"]
     if intel_list['intel_list']:
         otx_intel_list = [x.strip() for x in intel_list['intel_list'].split(",")]
         print('OTX Intel Providers configured.')

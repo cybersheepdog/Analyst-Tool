@@ -60,12 +60,58 @@ CREATE TABLE IF NOT EXISTS indicator_checks (
 );
 CREATE INDEX IF NOT EXISTS idx_checks_ind ON indicator_checks(indicator);
 
+-- Shared API keys, so a team keeps its keys in one place instead of pasting
+-- them into every analyst's local config.ini. The application overlays these
+-- (remote-first, local-fallback) onto the local config for a fixed whitelist
+-- of API-key options only; access is gated by the analyst_app DB login.
+CREATE TABLE IF NOT EXISTS shared_config (
+    section     TEXT NOT NULL,
+    option      TEXT NOT NULL,
+    value       TEXT,
+    updated_at  DOUBLE PRECISION,
+    updated_by  TEXT,
+    PRIMARY KEY (section, option)
+);
+
 GRANT USAGE, CREATE ON SCHEMA public TO analyst_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO analyst_app;
 ALTER TABLE indicator_cache  OWNER TO analyst_app;
 ALTER TABLE indicator_checks OWNER TO analyst_app;
+ALTER TABLE shared_config    OWNER TO analyst_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO analyst_app;
+
+-- ===================================================================
+-- 2a) OPTIONAL hardening — least privilege for the shared API keys
+-- ===================================================================
+-- By default analyst_app owns shared_config and can both read and write it,
+-- which is fine for a small trusted team. To reduce blast radius, give analysts
+-- READ-ONLY access to the keys and reserve writes for a separate admin login
+-- used only to run `analyst_tool_shared_config.py`. Analysts still keep full
+-- read/write on the cache/checks tables they need.
+--
+-- Run this block as a superuser (or the current owner) if you want the split.
+-- It is safe to skip; nothing in the app requires it.
+--
+--   -- 1) A dedicated admin login for managing keys (choose a strong password):
+--   DO $$
+--   BEGIN
+--       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'analyst_admin') THEN
+--           CREATE ROLE analyst_admin LOGIN PASSWORD 'CHANGE_ME_ADMIN';
+--       END IF;
+--   END $$;
+--
+--   -- 2) Hand shared_config to the admin and make analysts read-only on it:
+--   ALTER TABLE shared_config OWNER TO analyst_admin;
+--   REVOKE INSERT, UPDATE, DELETE ON shared_config FROM analyst_app;
+--   GRANT  SELECT                  ON shared_config TO   analyst_app;
+--   GRANT  SELECT, INSERT, UPDATE, DELETE ON shared_config TO analyst_admin;
+--
+-- Then run the key-management commands with the admin credentials (point a
+-- config.ini's [CACHE] db_user/password at analyst_admin), and give analysts
+-- only the analyst_app credentials. Combine this with envelope encryption
+-- (set ANALYST_SHARED_KEY) so even a leaked read-only login or backup exposes
+-- only ciphertext.
 
 -- ===================================================================
 -- 3) Remote access  (edit files on the server, then restart PostgreSQL)

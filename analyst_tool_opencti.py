@@ -8,6 +8,7 @@ from pycti import OpenCTIApiClient
 
 # Custom Imports
 from analyst_tool_utilities import *
+from analyst_tool_shared_config import load_config
 
 # PERFORMANCE MODIFICATION:
 # The original code called OpenCTIApiClient(url, token) on every single query,
@@ -39,14 +40,13 @@ def _get_opencti_client(url, token):
 
 def get_opencti_from_config():
     """Read OpenCTI credentials from config.ini and return a combined header string."""
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        cti_headers = config_object["OPEN_CTI"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    cti_headers = config_object["OPEN_CTI"]
     if cti_headers['opencti_api_token']:
         opencti_headers = cti_headers['opencti_api_url'] + "," + cti_headers['opencti_api_token']
         print("OpenCTI Configured.")

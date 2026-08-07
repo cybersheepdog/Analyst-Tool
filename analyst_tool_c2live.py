@@ -7,6 +7,7 @@ from elasticsearch import Elasticsearch
 
 # Custom Imports
 from analyst_tool_utilities import *
+from analyst_tool_shared_config import load_config
 
 # Module-level Elasticsearch client cache: { url: Elasticsearch }
 _es_client_cache: dict = {}
@@ -41,14 +42,13 @@ def get_c2live_config():
         c2_live_url   = http://localhost:9200
         c2_live_index = c2live-*
     """
-    config_object = ConfigParser()
     try:
-        config_object.read("config.ini")
+        config_object = load_config()
+        c2live_headers = config_object["C2LIVE"]
     except Exception:
         print("Error with config.ini.")
         return None
 
-    c2live_headers = config_object["C2LIVE"]
     if c2live_headers.get('c2_live_url'):
         print("C2Live Configured.")
         return c2live_headers

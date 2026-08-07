@@ -140,6 +140,7 @@ share/
 
 # Analyst Tool runtime caches (auto-downloaded/generated)
 analyst_cache.db
+reports/
 vpn_networks.txt
 datacenter_networks.txt
 cisa_kev.json

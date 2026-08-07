@@ -26,6 +26,9 @@ checks, MITRE ATT&CK, LOLBAS, or LOLDrivers.
 Common keys: `[VIRUS_TOTAL] x-apikey`, `[ABUSE_IP_DB] key`, `[ALIEN_VAULT_OTX] otx_api_key`,
 `[SHODAN] shodan_api_key`, `[OPEN_CTI] opencti_api_token`.
 
+On a shared team database you can store these keys **once** centrally instead of
+in every `config.ini` — see "Share across a team" below.
+
 Leave `[GENERAL] ssl_verify = true` unless you're behind a TLS-intercepting proxy.
 
 ## 3. Run
@@ -79,6 +82,10 @@ set up.
 
 - **Share across a team:** set `[CACHE] backend = remote` and fill in the
   PostgreSQL `host`/`dbname`/`db_user`/`password` so everyone saves calls together.
+- **Share API keys too:** on the remote backend, store keys once with
+  `python analyst_tool_shared_config.py import-local`; teammates load them
+  automatically (falling back to any local key). Set `ANALYST_SHARED_KEY` to
+  encrypt them at rest. See the remote-DB guides.
 - **Force a fresh lookup:** copy the indicator with a `!` in front, e.g. `!8.8.8.8`.
 - **See savings:** startup prints `API calls saved so far: N`.
 - **Turn it off:** set `[CACHE] enabled = false`.

@@ -19,6 +19,7 @@ import requests
 from configparser import ConfigParser
 
 from analyst_tool_utilities import color, session_get
+from analyst_tool_shared_config import load_config
 
 # CVE id: CVE-YYYY-NNNN (4 to 7 digit sequence). Case-insensitive in use.
 cve_regex = r'^CVE-\d{4}-\d{4,7}$'
@@ -38,9 +39,8 @@ _nvd_session = requests.Session()
 
 def get_nvd_key_from_config(path="config.ini"):
     """Return an optional NVD API key from config.ini [CVE] nvd_api_key, or None."""
-    config_object = ConfigParser()
     try:
-        config_object.read(path)
+        config_object = load_config(path)
         key = config_object.get("CVE", "nvd_api_key", fallback="").strip()
         return key or None
     except Exception:

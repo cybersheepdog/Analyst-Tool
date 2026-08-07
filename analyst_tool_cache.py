@@ -354,6 +354,48 @@ class SQLiteBackend:
             conn.commit()
             return cur.rowcount
 
+    def list_history(self, username=None, limit=20):
+        """Return recent check-log rows, newest first (all users if username=None)."""
+        q = ("SELECT indicator, indicator_type, username, checked_at "
+             "FROM indicator_checks ")
+        args = []
+        if username:
+            q += "WHERE username=? "
+            args.append(username)
+        q += "ORDER BY checked_at DESC LIMIT ?"
+        args.append(int(limit))
+        cur = self._conn().execute(q, tuple(args))
+        return [{"indicator": r["indicator"],
+                 "indicator_type": r["indicator_type"],
+                 "username": r["username"],
+                 "checked_at": r["checked_at"]} for r in cur.fetchall()]
+
+    def search_notes(self, terms=None, tags=None, limit=25):
+        """Search annotations. Every text term must appear in the indicator,
+        note or tags (case-insensitive substring); every tag must equal a whole
+        stored tag. Rows come back newest first, capped at limit."""
+        where, args = [], []
+        for t in (terms or []):
+            where.append("(LOWER(indicator) LIKE ? OR LOWER(COALESCE(note,'')) "
+                         "LIKE ? OR LOWER(COALESCE(tags,'')) LIKE ?)")
+            pat = "%" + t.lower() + "%"
+            args += [pat, pat, pat]
+        for t in (tags or []):
+            where.append("(' ' || LOWER(COALESCE(tags,'')) || ' ') LIKE ?")
+            args.append("% " + t.lower() + " %")
+        q = ("SELECT indicator, indicator_type, username, note, tags, "
+             "created_at FROM indicator_annotations ")
+        if where:
+            q += "WHERE " + " AND ".join(where) + " "
+        q += "ORDER BY created_at DESC LIMIT ?"
+        args.append(int(limit))
+        cur = self._conn().execute(q, tuple(args))
+        return [{"indicator": r["indicator"],
+                 "indicator_type": r["indicator_type"],
+                 "username": r["username"], "note": r["note"],
+                 "tags": r["tags"], "created_at": r["created_at"]}
+                for r in cur.fetchall()]
+
     def add_exclusion(self, domain, username):
         """Add a domain to the shared exclusion list (dedup). Returns True if new."""
         with self._write_lock:
@@ -547,6 +589,50 @@ class PostgresBackend:
                 "DELETE FROM indicator_annotations "
                 "WHERE indicator=%s AND username=%s", (indicator, username))
             return cur.rowcount
+
+    def list_history(self, username=None, limit=20):
+        """Return recent check-log rows, newest first (all users if username=None)."""
+        q = ("SELECT indicator, indicator_type, username, checked_at "
+             "FROM indicator_checks ")
+        args = []
+        if username:
+            q += "WHERE username=%s "
+            args.append(username)
+        q += "ORDER BY checked_at DESC LIMIT %s"
+        args.append(int(limit))
+        with self._cursor() as cur:
+            cur.execute(q, tuple(args))
+            rows = cur.fetchall()
+        return [{"indicator": r[0], "indicator_type": r[1], "username": r[2],
+                 "checked_at": float(r[3]) if r[3] is not None else None}
+                for r in rows]
+
+    def search_notes(self, terms=None, tags=None, limit=25):
+        """Search annotations. Every text term must appear in the indicator,
+        note or tags (case-insensitive substring); every tag must equal a whole
+        stored tag. Rows come back newest first, capped at limit."""
+        where, args = [], []
+        for t in (terms or []):
+            where.append("(LOWER(indicator) LIKE %s OR LOWER(COALESCE(note,'')) "
+                         "LIKE %s OR LOWER(COALESCE(tags,'')) LIKE %s)")
+            pat = "%" + t.lower() + "%"
+            args += [pat, pat, pat]
+        for t in (tags or []):
+            where.append("(' ' || LOWER(COALESCE(tags,'')) || ' ') LIKE %s")
+            args.append("% " + t.lower() + " %")
+        q = ("SELECT indicator, indicator_type, username, note, tags, "
+             "created_at FROM indicator_annotations ")
+        if where:
+            q += "WHERE " + " AND ".join(where) + " "
+        q += "ORDER BY created_at DESC LIMIT %s"
+        args.append(int(limit))
+        with self._cursor() as cur:
+            cur.execute(q, tuple(args))
+            rows = cur.fetchall()
+        return [{"indicator": r[0], "indicator_type": r[1], "username": r[2],
+                 "note": r[3], "tags": r[4],
+                 "created_at": float(r[5]) if r[5] is not None else None}
+                for r in rows]
 
     def add_exclusion(self, domain, username):
         with self._cursor() as cur:
@@ -911,6 +997,95 @@ class CacheManager:
             return
         self._emit(self._GREEN + "[+] Removed %d of your note(s) for %s"
                    % (removed, indicator) + self._END)
+
+    # -- lookup history & note/tag search -------------------------------------
+
+    def print_history(self, arg=""):
+        """Print recent lookups from the shared check log.
+
+        `arg` may contain, in any order: a number (how many rows, default 20)
+        and the word 'team' (everyone's lookups instead of just yours), e.g.
+        '', '50', 'team', 'team 50'. Re-checks by the same user within the
+        dedup window are logged once, so this is distinct lookups, not copies.
+        """
+        if not self.enabled:
+            print("\t[history] Needs the cache enabled ([CACHE] in config.ini).")
+            return
+        limit, team = 20, False
+        for tok in (arg or "").split():
+            tl = tok.lower()
+            if tl in ("team", "all", "everyone"):
+                team = True
+            elif tl.isdigit():
+                limit = max(1, min(int(tl), 500))
+        try:
+            rows = self.backend.list_history(None if team else self.username,
+                                             limit)
+        except Exception as exc:
+            print("\t[history] Could not read history: %s" % exc)
+            return
+        title = "TEAM HISTORY" if team else "YOUR HISTORY (%s)" % self.username
+        self._emit(self._BOLD + self._CYAN + "*** %s — %d most recent ***"
+                   % (title, len(rows)) + self._END)
+        if not rows:
+            self._emit("\t(no lookups recorded yet)")
+            return
+        for r in rows:
+            when = time.strftime(
+                '%Y-%m-%d %H:%M',
+                time.localtime(r.get("checked_at") or time.time()))
+            line = "\t%s  %-7s %s" % (when, r.get("indicator_type") or "?",
+                                      r.get("indicator") or "")
+            if team:
+                line += "   · " + (r.get("username") or "unknown")
+            self._emit(line)
+
+    def find_annotations(self, query):
+        """Search shared notes/tags. Plain words match the indicator, note text
+        or tags as substrings; '#tag' terms must match a whole stored tag. All
+        terms must match (AND). Results print newest first, grouped by indicator.
+        """
+        if not self.enabled:
+            print("\t[find] Needs the cache enabled ([CACHE] in config.ini).")
+            return
+        clean, tags = self._extract_tags(query or "")
+        terms = clean.split()
+        if not terms and not tags:
+            print("\t[find] usage: >>find <text and/or #tags>   "
+                  "e.g. >>find #c2  |  >>find phishing #fp  |  >>find 45.145.")
+            return
+        limit = 25
+        try:
+            rows = self.backend.search_notes(terms, tags, limit)
+        except Exception as exc:
+            print("\t[find] Could not search: %s" % exc)
+            return
+        shown = " ".join(terms + ["#" + t for t in tags])
+        self._emit(self._BOLD + self._CYAN + "*** FIND '%s' — %d matching "
+                   "note(s)%s ***" % (shown, len(rows),
+                                      " (newest %d)" % limit
+                                      if len(rows) >= limit else "") + self._END)
+        if not rows:
+            self._emit("\t(no matches)")
+            return
+        # Group rows under their indicator, keeping newest-first order.
+        by_ind = {}
+        for r in rows:
+            by_ind.setdefault(r.get("indicator") or "", []).append(r)
+        for ind, notes in by_ind.items():
+            itype = notes[0].get("indicator_type") or "?"
+            self._emit("\t" + self._BOLD + ind + self._END + "  (%s)" % itype)
+            for n in notes:
+                if n.get("note"):
+                    self._emit('\t\t"' + n["note"] + '"')
+                when = time.strftime(
+                    '%Y-%m-%d',
+                    time.localtime(n.get("created_at") or time.time()))
+                meta = "\t\t\t%s · %s" % (n.get("username") or "unknown", when)
+                tg = (n.get("tags") or "").split()
+                if tg:
+                    meta += " · " + " ".join(self._tag_pill(t) for t in tg)
+                self._emit(meta)
 
     # -- shared domain exclusions -------------------------------------------
 
