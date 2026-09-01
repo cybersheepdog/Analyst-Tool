@@ -149,6 +149,7 @@ def analyst(terminal=0):
 
     last_seen = get_clipboard_contents()
     last_indicator = None  # (value, type) of the most recent lookup, for >>note
+    last_command = (None, 0.0)  # (command text, when it ran) — duplicate guard
     sleep_time = 1  # adaptive: 1s idle, 3s after a lookup
 
     try:
@@ -157,6 +158,19 @@ def analyst(terminal=0):
                 check = get_clipboard_contents()
             except TypeError as e:
                 print('\n\n\n' + str(e))
+                time.sleep(sleep_time)
+                continue
+
+            # ── Unreadable / empty clipboard is NOT a change ──────────────────
+            # On Windows a poll can land while another process holds the
+            # clipboard lock, or in the brief gap between EmptyClipboard() and
+            # SetClipboardData() during someone else's copy. paste() then
+            # raises (get_clipboard_contents() returns None) or hands back ''.
+            # Recording that blank as `last_seen` would make the *unchanged*
+            # clipboard look new on the next poll, so the same line gets
+            # processed twice — e.g. a >>note saved twice. Skip the poll
+            # instead and leave `last_seen` pointing at the real content.
+            if not check:
                 time.sleep(sleep_time)
                 continue
 
@@ -170,12 +184,27 @@ def analyst(terminal=0):
                     # are surfaced rather than swallowed.
                     if (cache.command_prefix and check
                             and check.startswith(cache.command_prefix)):
+                        # Belt-and-braces against a command running twice: the
+                        # loop sleeps 3s after every command, so an identical
+                        # command re-appearing inside that window can only be a
+                        # repeat of the same copy, never a deliberate re-entry.
+                        if (check == last_command[0]
+                                and time.time() - last_command[1] < 3):
+                            time.sleep(sleep_time)
+                            continue
+                        last_command = (check, time.time())
                         try:
                             last_indicator = _handle_command(
                                 check[len(cache.command_prefix):].strip(),
                                 cache, last_indicator)
                         except Exception as _cmd_err:
                             print('\t[command error] ' + str(_cmd_err))
+                        # A command can change the clipboard itself
+                        # (>>report clip). Re-sync so its output isn't picked
+                        # up as a brand-new indicator on the next poll.
+                        _after = get_clipboard_contents()
+                        if _after:
+                            last_seen = _after
                         time.sleep(3)
                         continue
 
@@ -434,6 +463,7 @@ def _handle_command(body, cache, last_indicator):
     if not parts:
         print("\t[cmd] usage: >>note <indicator?> <text>  |  "
               ">>tag <indicator> <tags>  |  >>note-rm <indicator>  |  "
+              ">>note-dedupe [indicator] [dry]  |  "
               ">>find <text/#tags>  |  >>history [N] [team]  |  "
               ">>report [N] [clip]")
         return last_indicator
@@ -458,6 +488,18 @@ def _handle_command(body, cache, last_indicator):
             cache.add_note(target, itype, "", extra_tags=text.split())
         else:
             print("\t[tag] usage: >>tag <indicator> <tag1> <tag2> ...")
+    elif verb in ('note-dedupe', 'notededupe', 'dedupe', 'note-dedup'):
+        # >>note-dedupe [indicator] [dry] — collapse YOUR identical notes to
+        # the oldest copy. No indicator = sweep all of your notes. Add 'dry'
+        # (or 'preview') to see what would go without deleting anything.
+        words = rest.split()
+        dry = bool(words) and words[-1].lower() in ('dry', 'dry-run', 'preview')
+        if dry:
+            words = words[:-1]
+        target = words[0] if words else None
+        cache.dedupe_notes(target,
+                           _indicator_type(target) if target else None,
+                           dry_run=dry)
     elif verb in ('note-rm', 'noterm', 'unnote'):
         target = rest.strip()
         if not target and last_indicator:
@@ -498,7 +540,7 @@ def _handle_command(body, cache, last_indicator):
         cache.find_annotations(rest)
     else:
         print("\t[cmd] Unknown command '%s'. Try note / tag / note-rm / "
-              "find / history / report / exclude." % verb)
+              "note-dedupe / find / history / report / exclude." % verb)
     return last_indicator
 
 

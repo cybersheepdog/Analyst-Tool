@@ -195,6 +195,7 @@ purge_days = 0
 user = alice                 ; <-- unique per analyst (bob, carol, …)
 check_window_days = 7
 check_dedup_minutes = 60
+note_dedup_seconds = 60      ; skip an identical note re-saved within a minute
 host = db.internal.example.com
 port = 5432
 dbname = analyst_tool
@@ -236,6 +237,7 @@ lookups (caching simply turns off) — it never blocks your work.
 |----------|--------|
 | Widen/narrow the "recently checked" window | `check_window_days` (default 7) |
 | Count quick re-checks by the same person more/less aggressively | `check_dedup_minutes` (default 60). Larger = the same user must wait longer before a re-check counts again. |
+| Allow (or further restrict) identical repeat notes | `note_dedup_seconds` (default 60). An identical note from the same analyst inside the window is skipped; `0` disables the guard. |
 | Change the freshness window for reusing cached API results | `freshness_days` (default 7) — independent of the notice window. |
 | Use a different force-refresh character | `force_prefix` (default `!`) |
 

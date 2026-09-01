@@ -290,9 +290,15 @@ pg_dump -U postgres -d analyst_tool -F c -f /var/backups/analyst_tool_$(date +\%
 
 ### Note on freshness / window settings
 
-`freshness_days`, `check_window_days`, and `check_dedup_minutes` are read from each
-analyst's `config.ini`, not the server. Keep them consistent across the team by
-standardizing the `[CACHE]` block you hand out.
+`freshness_days`, `check_window_days`, `check_dedup_minutes`, and
+`note_dedup_seconds` are read from each analyst's `config.ini`, not the server. Keep
+them consistent across the team by standardizing the `[CACHE]` block you hand out.
+
+`note_dedup_seconds` (default 60) is the guard that stops the same note being
+written twice; it runs client-side, so an analyst on an older build can still add
+duplicate notes to the shared database. Anyone can clear their own with
+`>>note-dedupe` — it only ever touches the notes of the analyst running it, so
+there is no admin-side cleanup command, by design.
 
 ---
 

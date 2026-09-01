@@ -9,6 +9,7 @@ Examples:
     python annotate.py add 45.145.66.165 "confirmed phishing C2, case #1487" --tags phishing,c2
     python annotate.py list 45.145.66.165
     python annotate.py rm 45.145.66.165
+    python annotate.py dedupe 45.145.66.165 --dry-run
     python annotate.py find "#c2"
     python annotate.py history --team -n 50
 
@@ -75,6 +76,13 @@ def main():
     p_rm = sub.add_parser("rm", help="remove YOUR notes for an indicator")
     p_rm.add_argument("indicator")
 
+    p_dedupe = sub.add_parser(
+        "dedupe", help="remove YOUR duplicate notes, keeping the oldest copy")
+    p_dedupe.add_argument("indicator", nargs="?",
+                          help="limit to one indicator (default: all yours)")
+    p_dedupe.add_argument("--dry-run", action="store_true",
+                          help="report what would be removed, delete nothing")
+
     p_find = sub.add_parser("find", help="search notes/tags, e.g. find '#c2' or find phishing")
     p_find.add_argument("query", nargs="+",
                         help="words match note text/indicator/tags; #tag matches a whole tag")
@@ -108,6 +116,11 @@ def main():
         cache.print_team_notes(args.indicator, _guess_type(args.indicator))
     elif args.cmd == "rm":
         cache.remove_my_notes(args.indicator, _guess_type(args.indicator))
+    elif args.cmd == "dedupe":
+        cache.dedupe_notes(
+            args.indicator,
+            _guess_type(args.indicator) if args.indicator else None,
+            dry_run=args.dry_run)
     elif args.cmd == "find":
         cache.find_annotations(" ".join(args.query))
     elif args.cmd == "history":

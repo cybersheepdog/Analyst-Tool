@@ -69,6 +69,7 @@ purge_days = 0
 user = bob                       ; <-- YOUR unique analyst name
 check_window_days = 7
 check_dedup_minutes = 60
+note_dedup_seconds = 60          ; skip an identical note re-saved within a minute
 host = db.internal.example.com   ; from admin
 port = 5432                      ; from admin
 dbname = analyst_tool            ; from admin
@@ -87,9 +88,11 @@ What each field means:
   identity, not a database account.
 - `sslmode` — `prefer` works in most setups; use `require` if your admin runs TLS
   and wants it enforced.
-- Leave `freshness_days`, `check_window_days`, and `check_dedup_minutes` at the
-  defaults unless your admin tells you otherwise (keeping them consistent across
-  the team is best).
+- Leave `freshness_days`, `check_window_days`, `check_dedup_minutes`, and
+  `note_dedup_seconds` at the defaults unless your admin tells you otherwise
+  (keeping them consistent across the team is best). `note_dedup_seconds` is
+  applied by *your* copy of the tool before it writes, so everyone needs the
+  update for the shared database to stay free of duplicate notes.
 
 > Keep your `config.ini` private — it contains the shared database password. Don't
 > commit it to a public repo.

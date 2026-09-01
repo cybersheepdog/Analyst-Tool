@@ -32,6 +32,7 @@ You can enter notes three ways — pick whichever is comfortable:
 | `>>note` | Prompt for a note on your **last** lookup |
 | `>>tag <indicator> <tag1> <tag2>` | Add tags only (no note text) |
 | `>>note-rm <indicator>` | Remove **your** notes for an indicator |
+| `>>note-dedupe [indicator] [dry]` | Remove **your** duplicate notes, keeping the oldest copy |
 | `>>find <text and/or #tags>` | Search all notes/tags, e.g. `>>find #c2` |
 | `>>history [N] [team]` | Your (or everyone's) recent lookups |
 | `>>report [N] [clip]` | Export the last N lookups to a ticket-ready file (or clipboard) |
@@ -40,6 +41,7 @@ You can enter notes three ways — pick whichever is comfortable:
 | `python annotate.py add <indicator> "<text>" [--tags a,b]` | Add a note via CLI |
 | `python annotate.py list <indicator>` | Show notes via CLI |
 | `python annotate.py rm <indicator>` | Remove your notes via CLI |
+| `python annotate.py dedupe [indicator] [--dry-run]` | Remove your duplicate notes via CLI |
 | `>>exclude <domain>` | Add a domain to the **shared** skip list (anyone can remove) |
 | `>>exclude` | Exclude the host of your **last** domain/URL lookup |
 | `>>exclude-rm <domain>` | Remove a domain from the shared skip list |
@@ -138,6 +140,34 @@ You can remove **your own** notes for an indicator (you can't delete a teammate'
 ```
 
 Or via the CLI: `python annotate.py rm 45.145.66.165`.
+
+### Duplicates
+
+An identical note from you within `note_dedup_seconds` (default 60, `[CACHE]` in
+config.ini) is treated as a double entry and skipped, so the same note can't be
+saved twice by a command that fires more than once:
+
+```
+>>note 45.145.66.165 confirmed phishing #c2
+[=] Identical note already saved for 45.145.66.165 moments ago — skipped.
+```
+
+Set `note_dedup_seconds = 0` if you really want identical repeat notes allowed.
+
+To clean up duplicates already in the database, `>>note-dedupe` collapses each
+group of identical notes of **yours** to its oldest copy — the note itself always
+survives, and teammates' notes are never touched:
+
+```
+>>note-dedupe 45.145.66.165 dry     (preview — deletes nothing)
+    [dedupe] 2 duplicate note(s) would be removed for 45.145.66.165 (dry run — nothing deleted):
+      2026-08-31 14:02  45.145.66.165  "confirmed phishing C2, case #1487"
+
+>>note-dedupe                       (sweeps all of your notes)
+[+] Removed 2 duplicate note(s) (oldest copy of each kept):
+```
+
+Or via the CLI: `python annotate.py dedupe [indicator] [--dry-run]`.
 
 ---
 
@@ -282,6 +312,7 @@ In `config.ini` under `[CACHE]`:
 |-----|---------|---------|
 | `command_prefix` | `>>` | Marks a clipboard line as a command. Change it if `>>` clashes with something you copy often. |
 | `max_notes_shown` | `5` | How many notes to show before `(+N more)`. |
+| `note_dedup_seconds` | `60` | An identical note from the same analyst inside this window is treated as a double entry and skipped. `0` allows identical repeat notes. |
 | `exclusion_refresh_minutes` | `5` | How often to re-pull the shared exclusion list from the DB so a teammate's `>>exclude` propagates. |
 | `user` | OS login | The name recorded as the note's / exclusion's author — give each analyst a unique value on a shared DB. |
 

@@ -302,7 +302,10 @@ And the note then appears at the top of everyone's next lookup of that indicator
 You can also paste the whole thing at once (`>>note 45.145.66.165 confirmed
 phishing #c2`), annotate your **last** lookup with a bare `>>note`, add tags only
 with `>>tag 45.145.66.165 phishing c2`, or remove your own notes with
-`>>note-rm 45.145.66.165`. Inline `#tags` colour-code the indicator for everyone
+`>>note-rm 45.145.66.165`. An identical note saved twice within a minute is
+skipped automatically, and `>>note-dedupe` (add `dry` to preview) clears out any
+duplicates already saved, keeping the oldest copy of each. Inline `#tags`
+colour-code the indicator for everyone
 (malicious-type tags red, `fp`/`benign` green). There's also an `annotate.py` CLI.
 
 To get back to what you (or a teammate) saved: `>>find #c2` searches all

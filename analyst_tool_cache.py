@@ -60,6 +60,7 @@ def get_cache_config_from_config(path="config.ini"):
         "command_prefix": ">>",
         "max_notes_shown": 5,
         "exclusion_refresh_minutes": 5.0,
+        "note_dedup_seconds": 60.0,
         # remote (PostgreSQL)
         "host": "",
         "port": 5432,
@@ -116,6 +117,7 @@ def get_cache_config_from_config(path="config.ini"):
     cfg["command_prefix"] = _get("command_prefix", ">>")
     cfg["max_notes_shown"] = _int("max_notes_shown", 5)
     cfg["exclusion_refresh_minutes"] = _float("exclusion_refresh_minutes", 5.0)
+    cfg["note_dedup_seconds"] = _float("note_dedup_seconds", 60.0)
     cfg["host"] = _get("host", "")
     cfg["port"] = _int("port", 5432)
     cfg["dbname"] = _get("dbname", "")
@@ -351,6 +353,45 @@ class SQLiteBackend:
             cur = conn.execute(
                 "DELETE FROM indicator_annotations "
                 "WHERE indicator=? AND username=?", (indicator, username))
+            conn.commit()
+            return cur.rowcount
+
+    def list_note_rows(self, indicator=None, username=None):
+        """Return annotation rows (oldest first), each with an opaque row id.
+
+        Used by the duplicate cleanup, which needs to tell otherwise-identical
+        rows apart. The id is SQLite's rowid; treat it as valid only until the
+        next write, so list and delete in one go.
+        """
+        q = ("SELECT rowid AS rid, indicator, indicator_type, username, note, "
+             "tags, created_at FROM indicator_annotations")
+        where, args = [], []
+        if indicator:
+            where.append("indicator=?")
+            args.append(indicator)
+        if username:
+            where.append("username=?")
+            args.append(username)
+        if where:
+            q += " WHERE " + " AND ".join(where)
+        q += " ORDER BY created_at ASC, rowid ASC"
+        cur = self._conn().execute(q, tuple(args))
+        return [{"id": r["rid"], "indicator": r["indicator"],
+                 "indicator_type": r["indicator_type"],
+                 "username": r["username"], "note": r["note"],
+                 "tags": r["tags"], "created_at": r["created_at"]}
+                for r in cur.fetchall()]
+
+    def delete_notes_by_ids(self, ids):
+        """Delete the annotation rows with these ids. Returns rows removed."""
+        ids = [int(i) for i in (ids or [])]
+        if not ids:
+            return 0
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "DELETE FROM indicator_annotations WHERE rowid IN (%s)"
+                % ",".join("?" * len(ids)), tuple(ids))
             conn.commit()
             return cur.rowcount
 
@@ -590,6 +631,47 @@ class PostgresBackend:
                 "WHERE indicator=%s AND username=%s", (indicator, username))
             return cur.rowcount
 
+    def list_note_rows(self, indicator=None, username=None):
+        """Return annotation rows (oldest first), each with an opaque row id.
+
+        The id is the physical ctid rendered as text — the table has no primary
+        key, and this is the only way to address one row of an identical pair.
+        Notes are never updated, so a ctid stays put between the list and the
+        delete; the delete still re-checks the row's owner as a guard.
+        """
+        q = ("SELECT ctid::text, indicator, indicator_type, username, note, "
+             "tags, created_at FROM indicator_annotations")
+        where, args = [], []
+        if indicator:
+            where.append("indicator=%s")
+            args.append(indicator)
+        if username:
+            where.append("username=%s")
+            args.append(username)
+        if where:
+            q += " WHERE " + " AND ".join(where)
+        q += " ORDER BY created_at ASC"
+        with self._cursor() as cur:
+            cur.execute(q, tuple(args))
+            rows = cur.fetchall()
+        return [{"id": r[0], "indicator": r[1], "indicator_type": r[2],
+                 "username": r[3], "note": r[4], "tags": r[5],
+                 "created_at": float(r[6]) if r[6] is not None else None}
+                for r in rows]
+
+    def delete_notes_by_ids(self, ids):
+        """Delete the annotation rows with these ids. Returns rows removed."""
+        ids = [str(i) for i in (ids or []) if i]
+        if not ids:
+            return 0
+        removed = 0
+        with self._cursor() as cur:
+            for rid in ids:
+                cur.execute("DELETE FROM indicator_annotations "
+                            "WHERE ctid = %s::tid", (rid,))
+                removed += max(0, cur.rowcount)
+        return removed
+
     def list_history(self, username=None, limit=20):
         """Return recent check-log rows, newest first (all users if username=None)."""
         q = ("SELECT indicator, indicator_type, username, checked_at "
@@ -727,7 +809,7 @@ class CacheManager:
     def __init__(self, backend, freshness_days=7.0, force_prefix="!",
                  purge_days=0.0, username="unknown", check_window_days=7.0,
                  check_dedup_minutes=60.0, command_prefix=">>", max_notes_shown=5,
-                 exclusion_refresh_minutes=5.0):
+                 exclusion_refresh_minutes=5.0, note_dedup_seconds=60.0):
         self.backend = backend
         self.enabled = backend is not None
         self.freshness_seconds = max(0.0, float(freshness_days)) * 86400.0
@@ -742,6 +824,12 @@ class CacheManager:
         except Exception:
             self.max_notes_shown = 5
         self.exclusion_ttl_seconds = max(0.0, float(exclusion_refresh_minutes)) * 60.0
+        # How long an identical note from the same user counts as a duplicate
+        # re-entry rather than a deliberate second note. 0 disables the guard.
+        try:
+            self.note_dedup_seconds = max(0.0, float(note_dedup_seconds))
+        except Exception:
+            self.note_dedup_seconds = 60.0
         self._exclusions_cache = None
         self._exclusions_loaded_at = 0.0
         self._print_lock = threading.Lock()
@@ -947,6 +1035,15 @@ class CacheManager:
         clean, inline_tags = self._extract_tags(note or "")
         tags = list(dict.fromkeys(
             t.lower() for t in (inline_tags + list(extra_tags or [])) if t))
+        # ── Duplicate guard ──────────────────────────────────────────────────
+        # The same note, from the same analyst, moments apart is a double
+        # entry — a re-fired clipboard command, a double-run of annotate.py —
+        # not a deliberate second note. Decline the twin rather than storing
+        # it: the first copy is already saved, so nothing is lost.
+        if self._is_recent_duplicate(key, clean, " ".join(tags)):
+            self._emit(self._CYAN + "[=] Identical note already saved for %s "
+                       "moments ago — skipped." % indicator + self._END)
+            return
         try:
             self.backend.add_note(key, indicator_type, self.username,
                                   clean, " ".join(tags))
@@ -984,6 +1081,86 @@ class CacheManager:
             self._emit(meta)
         if total > len(notes):
             self._emit("\t(+%d more)" % (total - len(notes)))
+
+    def _is_recent_duplicate(self, key, note, tags):
+        """True if this exact note by this user was stored inside the dedup
+        window. Best-effort by design: any lookup failure returns False, so a
+        database hiccup can never silently swallow a real note.
+        """
+        if self.note_dedup_seconds <= 0:
+            return False
+        try:
+            recent, _total = self.backend.list_notes(key, 10)
+        except Exception:
+            return False
+        now = time.time()
+        for row in recent or []:
+            if (row.get("username") == self.username
+                    and (row.get("note") or "") == (note or "")
+                    and (row.get("tags") or "") == (tags or "")):
+                created = row.get("created_at") or 0.0
+                if 0 <= now - created <= self.note_dedup_seconds:
+                    return True
+        return False
+
+    def dedupe_notes(self, indicator=None, indicator_type=None, dry_run=False):
+        """Collapse YOUR identical notes to the oldest copy. Returns the count.
+
+        Rows are grouped on (indicator, type, note, tags) and the earliest of
+        each group is always kept, so the note itself survives — only exact
+        twins go. Other analysts' notes are never touched. With `indicator`
+        the sweep is limited to that one indicator; `dry_run` reports what
+        would go without deleting anything.
+        """
+        if not self.enabled:
+            print("\t[dedupe] Needs the cache enabled ([CACHE] in config.ini).")
+            return 0
+        key = self._norm(indicator, indicator_type) if indicator else None
+        try:
+            rows = self.backend.list_note_rows(key, self.username)
+        except Exception as exc:
+            print("\t[dedupe] Could not read notes: %s" % exc)
+            return 0
+
+        scope = (" for " + indicator) if indicator else ""
+        keep, extra = {}, []
+        for row in rows:                      # oldest first
+            sig = (row.get("indicator"), row.get("indicator_type") or "",
+                   row.get("note") or "", row.get("tags") or "")
+            if sig in keep:
+                extra.append(row)
+            else:
+                keep[sig] = row
+        if not extra:
+            self._emit("\t[dedupe] No duplicate notes found%s." % scope)
+            return 0
+
+        lines = []
+        for row in extra:
+            when = row.get("created_at")
+            stamp = (time.strftime("%Y-%m-%d %H:%M", time.localtime(when))
+                     if when else "?")
+            text = (row.get("note") or "").strip() or "(tags only)"
+            if len(text) > 60:
+                text = text[:57] + "..."
+            lines.append("\t  %s  %s  \"%s\"" % (stamp, row.get("indicator"), text))
+
+        if dry_run:
+            self._emit("\t[dedupe] %d duplicate note(s) would be removed%s "
+                       "(dry run — nothing deleted):\n%s"
+                       % (len(extra), scope, "\n".join(lines)))
+            return len(extra)
+
+        try:
+            removed = self.backend.delete_notes_by_ids(
+                [row.get("id") for row in extra])
+        except Exception as exc:
+            print("\t[dedupe] Could not remove: %s" % exc)
+            return 0
+        self._emit(self._GREEN + "[+] Removed %d duplicate note(s)%s "
+                   "(oldest copy of each kept):" % (removed, scope) + self._END
+                   + "\n" + "\n".join(lines))
+        return removed
 
     def remove_my_notes(self, indicator, indicator_type):
         """Delete the current user's notes for an indicator."""
@@ -1236,5 +1413,6 @@ def build_cache_manager(path="config.ini"):
         check_dedup_minutes=cfg["check_dedup_minutes"],
         command_prefix=cfg["command_prefix"],
         max_notes_shown=cfg["max_notes_shown"],
-        exclusion_refresh_minutes=cfg["exclusion_refresh_minutes"])
+        exclusion_refresh_minutes=cfg["exclusion_refresh_minutes"],
+        note_dedup_seconds=cfg["note_dedup_seconds"])
     return manager

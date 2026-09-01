@@ -161,6 +161,7 @@ sslmode = prefer
 | `command_prefix` | Marks a clipboard line as a notes/tags command rather than an indicator. Default `>>`. See [NOTE_COMMANDS.md](NOTE_COMMANDS.md). |
 | `max_notes_shown` | How many team notes to show atop a report before `(+N more)`. Default `5`. |
 | `exclusion_refresh_minutes` | How often to re-pull the shared domain-exclusion list from the DB so a teammate's `>>exclude` propagates without a restart. Default `5`. |
+| `note_dedup_seconds` | An identical note from the **same** analyst within this many seconds is treated as a double entry and skipped, so one note can't be saved twice. The first copy is always kept. Default `60`; `0` allows identical repeats. |
 | `host`, `port`, `dbname`, `db_user`, `password`, `sslmode` | PostgreSQL connection settings (remote backend only). Note the connection user is `db_user` — `user` above is the analyst identity. |
 
 For `sslmode`, prefer `require` (encrypt with no fallback) or `verify-full` (encrypt + verify the server certificate) over the default `prefer`, which will silently connect **unencrypted** if the server doesn't offer TLS — important when the database holds shared secrets. Use `require`/`verify-full` only once the server has TLS enabled.
@@ -614,11 +615,18 @@ Lookups are unchanged — only clipboard lines starting with the `command_prefix
 >>note 45.145.66.165          (the tool then prompts you to type the note)
 >>tag 45.145.66.165 phishing c2
 >>note-rm 45.145.66.165       (removes your own notes)
+>>note-dedupe [indicator]     (drops your duplicate notes, keeps the oldest)
 ```
 
 A bare `>>note` (or `>>note <text>`) attaches to your **last** lookup. There's also
-a `python annotate.py add/list/rm` CLI for clipboard-free entry. Tags are
+a `python annotate.py add/list/rm/dedupe` CLI for clipboard-free entry. Tags are
 colour-coded (malicious-type tags red, `fp`/`benign` green).
+
+Saving the same note twice is guarded against: an identical note from you inside
+`note_dedup_seconds` (default 60) is skipped rather than stored a second time. For
+duplicates already in the database, `>>note-dedupe [indicator]` collapses each set
+of your identical notes to its oldest copy — add `dry` to preview it, and note that
+teammates' notes are never touched.
 
 Saved notes are searchable, and the shared check log doubles as a lookup history:
 
