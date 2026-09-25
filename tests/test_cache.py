@@ -75,3 +75,75 @@ def test_disabled_manager_runs_live():
     mgr.cached_call("x", "ip", "vt", lambda: calls.__setitem__("n", calls["n"] + 1))
     assert calls["n"] == 2
     assert mgr.record_check_and_alert("x", "ip") is None  # no-op when disabled
+
+
+# ── not-found vs error ──────────────────────────────────────────────────────
+
+def _capture_emit(mgr):
+    """Collect what the manager emits instead of printing it."""
+    out = []
+    mgr._emit = lambda text: out.append(text)
+    return out
+
+
+def test_not_found_is_cached_but_expires_early():
+    from analyst_tool_utilities import IndicatorNotFound
+    be = _backend()
+    mgr = C.CacheManager(be, freshness_days=7, username="bob", not_found_hours=1)
+    out = _capture_emit(mgr)
+    calls = {"n": 0}
+
+    def live():
+        calls["n"] += 1
+        print("\tFile hash not found in VirusTotal")
+        raise IndicatorNotFound("VirusTotal")
+
+    mgr.cached_call("abc", "hash", "virustotal", live)
+    mgr.cached_call("abc", "hash", "virustotal", live)
+    assert calls["n"] == 1                                   # second one served from cache
+    assert all(C.CacheManager.NOT_FOUND_MARK not in t for t in out)   # marker never shown
+    assert "not found in VirusTotal" in out[-1]
+
+    row = be.get_any_row("abc", "virustotal")
+    assert row["payload"].startswith(C.CacheManager.NOT_FOUND_MARK)
+
+    # Age the row past not_found_hours but well inside freshness_days → re-queried
+    be._conn().execute("UPDATE indicator_cache SET updated_at=updated_at-7200")
+    be._conn().commit()
+    mgr.cached_call("abc", "hash", "virustotal", live)
+    assert calls["n"] == 2
+
+
+def test_service_error_is_never_cached_and_falls_back_to_stale():
+    from analyst_tool_utilities import ServiceError
+    import pytest
+    be = _backend()
+    mgr = C.CacheManager(be, freshness_days=7, username="bob")
+    out = _capture_emit(mgr)
+
+    def quota():
+        print("\tFile hash not found in VirusTotal")   # what the OLD code printed on 429
+        raise ServiceError("VirusTotal", 429, "Quota exceeded")
+
+    # Nothing cached before → the error propagates to the caller
+    with pytest.raises(ServiceError):
+        mgr.cached_call("abc", "hash", "virustotal", quota)
+    assert be.get_any_row("abc", "virustotal") is None     # the 429 was NOT stored
+
+    # With an older real result on file → stale copy is served instead
+    be.store_miss("abc", "hash", "virustotal", "\tMalicious: 7\n")
+    be._conn().execute("UPDATE indicator_cache SET updated_at=updated_at-30*86400")
+    be._conn().commit()
+    mgr.cached_call("abc", "hash", "virustotal", quota)
+    assert "stale cached result" in out[-1] and "Malicious: 7" in out[-1]
+
+
+def test_not_found_with_cache_disabled_is_silent():
+    from analyst_tool_utilities import IndicatorNotFound
+    mgr = C.CacheManager(None)
+
+    def live():
+        print("not found")
+        raise IndicatorNotFound("x")
+
+    mgr.cached_call("abc", "hash", "virustotal", live)      # must not raise

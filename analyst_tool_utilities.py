@@ -38,6 +38,108 @@ except Exception:  # pragma: no cover
 _ssl_verify_cache = None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Service outcome exceptions
+#
+# A lookup can end three ways, and the cache must tell them apart:
+#   * normal return          — a real result: cache it for freshness_days.
+#   * IndicatorNotFound      — the service has no record of the indicator. That
+#                              is also a real answer, so it is cached, but only
+#                              for a short time (a hash unknown today may be
+#                              analysed tomorrow).
+#   * ServiceError / other   — quota, auth, outage: NOT an answer. Never cached;
+#                              the cache falls back to any stale copy instead.
+# Before this split, a VirusTotal 429 (quota exceeded) printed "not found" and
+# was cached for a week.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class IndicatorNotFound(Exception):
+    """The service has no record of this indicator (e.g. HTTP 404)."""
+
+
+class ServiceError(Exception):
+    """The service could not answer (quota, auth, outage, bad response)."""
+
+    def __init__(self, service, status=None, message=None):
+        self.service = service
+        self.status = status
+        self.message = message
+        text = service
+        if status is not None:
+            text += ": HTTP %s" % status
+        if message:
+            text += (" — " if status is not None else ": ") + str(message)
+        super().__init__(text)
+
+
+def api_error_message(response):
+    """Best-effort human message from a JSON error body (VirusTotal style
+    {"error": {"code", "message"}}, AbuseIPDB style {"errors": [{"detail"}]})."""
+    try:
+        body = response.json()
+    except Exception:
+        return (response.reason or "").strip() or None
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            return err.get("message") or err.get("code")
+        if isinstance(err, str):
+            return err
+        errs = body.get("errors")
+        if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+            return errs[0].get("detail") or errs[0].get("message")
+    return (response.reason or "").strip() or None
+
+
+_lookup_deadline_cache = None
+
+
+def get_lookup_deadline_from_config():
+    """Seconds a report waits for its slowest service before printing without
+    it ([GENERAL] lookup_deadline_seconds, default 20; 0 = wait forever, the
+    pre-deadline behaviour)."""
+    global _lookup_deadline_cache
+    if _lookup_deadline_cache is not None:
+        return _lookup_deadline_cache
+    value = 20.0
+    try:
+        cfg = ConfigParser()
+        cfg.read("config.ini")
+        value = float(cfg.get("GENERAL", "lookup_deadline_seconds", fallback="20"))
+    except Exception:
+        value = 20.0
+    _lookup_deadline_cache = max(0.0, value)
+    return _lookup_deadline_cache
+
+
+def resolve_ptr(ip, timeout=3.0):
+    """Reverse-DNS an IP with a hard timeout. socket.gethostbyaddr has no
+    timeout of its own and can block for the resolver's full retry cycle
+    (often 10 s+ on Windows for an unresolvable address), so run it on a
+    daemon thread and give up after `timeout` seconds. Returns None on any
+    failure or timeout."""
+    result = []
+
+    def _lookup():
+        try:
+            result.append(socket.gethostbyaddr(str(ip).strip())[0])
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_lookup, daemon=True)
+    t.start()
+    t.join(timeout)
+    return result[0] if result else None
+
+
+def parse_ip(value):
+    """Return an ipaddress object for a bare IPv4/IPv6 literal, else None."""
+    try:
+        return ipaddress.ip_address((value or "").strip())
+    except (ValueError, TypeError):
+        return None
+
+
 def get_ssl_verify_from_config():
     """Return True if TLS certificates should be verified (the default).
 
@@ -543,11 +645,7 @@ def check_vpn(suspect_ip, org_text=None):
     """
     in_list = is_vpn_ip(suspect_ip)
 
-    ptr = None
-    try:
-        ptr = socket.gethostbyaddr(suspect_ip.strip())[0]
-    except Exception:
-        ptr = None
+    ptr = resolve_ptr(suspect_ip)   # bounded reverse DNS (None on miss/timeout)
 
     provider = vpn_provider_from_text(" ".join(x for x in (ptr, org_text) if x))
 
@@ -816,12 +914,22 @@ def get_excluded_domains_from_config(path="config.ini"):
 
 
 def _hostname_of(value):
-    """Extract the lowercase hostname from a domain or URL string."""
+    """Extract the lowercase hostname from a domain or URL string.
+
+    A bare IP literal (v4 or v6) is returned as-is: urlparse would read
+    "2001:db8::1" as host "2001" with a port. Unparsable input yields "".
+    """
     v = (value or "").strip()
     if not v:
         return ""
-    parsed = urlparse(v if "://" in v else "//" + v)
-    host = parsed.hostname or ""
+    ip = parse_ip(v)
+    if ip is not None:
+        return str(ip)
+    try:
+        parsed = urlparse(v if "://" in v else "//" + v)
+        host = parsed.hostname or ""
+    except ValueError:
+        return ""
     return host.lower().rstrip(".")
 
 

@@ -158,3 +158,14 @@ def test_delete_notes_by_ids_is_precise():
     left = be.list_note_rows("4.4.4.4", "alice")
     assert len(left) == 1 and left[0]["note"] == "one"
     assert be.delete_notes_by_ids([]) == 0
+
+
+def test_delete_notes_by_ids_owner_guard():
+    be = _backend()
+    be.add_note("4.4.4.5", "ip", "alice", "mine", "")
+    be.add_note("4.4.4.5", "ip", "bob", "theirs", "")
+    rows = be.list_note_rows("4.4.4.5")
+    bob_id = [r["id"] for r in rows if r["username"] == "bob"][0]
+    assert be.delete_notes_by_ids([bob_id], "alice") == 0   # not alice's row
+    assert be.list_notes("4.4.4.5", 10)[1] == 2
+    assert be.delete_notes_by_ids([bob_id], "bob") == 1

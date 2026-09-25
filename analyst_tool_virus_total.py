@@ -22,6 +22,31 @@ def _get_session():
         _thread_local.session = requests.Session()
     return _thread_local.session
 
+def _vt_check(response):
+    """Raise on anything that is not a real answer.
+
+    404 → IndicatorNotFound (the caller prints its own "not found" line first).
+    Any other non-200 (429 quota, 401/403 auth, 5xx) → ServiceError, so the
+    cache never stores it as a result.
+    """
+    if response.status_code == 404:
+        raise IndicatorNotFound("VirusTotal")
+    if response.status_code != 200:
+        raise ServiceError("VirusTotal", response.status_code,
+                           api_error_message(response))
+
+
+def _quota_warning(virus_total_headers, vt_user):
+    """Print the daily-quota warning if a VT username is configured. Advisory
+    only — a failure here must never abort the report."""
+    if not vt_user:
+        return
+    try:
+        vt_api_count(virus_total_headers, vt_user)
+    except Exception:
+        pass
+
+
 # Default network timeout (seconds) for all VT requests.
 _TIMEOUT = 10
 
@@ -107,11 +132,15 @@ def get_vt_ip_results(suspect_ip, virus_total_headers, vt_user):
     vt_ip_report = 'https://www.virustotal.com/api/v3/ip_addresses/' + suspect_ip
     session = _get_session()
     response = session_get(session, vt_ip_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    if response.status_code == 404:
+        print(color.UNDERLINE + '\nVirusTotal Detections:' + color.END)
+        print('\tIP address not found in VirusTotal')
+        raise IndicatorNotFound("VirusTotal")
+    _vt_check(response)
     vt_ip_response = json.loads(response.text)
 
-    print(color.UNDERLINE + '\nVirusToal Detections:' + color.END)
-    if vt_user:
-        vt_api_count(virus_total_headers, vt_user)
+    print(color.UNDERLINE + '\nVirusTotal Detections:' + color.END)
+    _quota_warning(virus_total_headers, vt_user)
     print_ip_detections(vt_ip_response)
     print("\thttps://www.virustotal.com/gui/ip-address/" + suspect_ip)
 
@@ -220,19 +249,22 @@ def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):
     heading = "\n\n\nVirusTotal Hash Report for " + suspect_hash + ":"
     print(color.BOLD + heading + color.END)
 
-    if vt_user:
-        vt_api_count(virus_total_headers, vt_user)
-
     session = _get_session()
     response = session_get(session, vt_hash_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    if response.status_code == 404:
+        print(color.UNDERLINE + 'File Reputation:' + color.END)
+        print('\tFile hash not found in VirusTotal')
+        raise IndicatorNotFound("VirusTotal")
+    _vt_check(response)
     vt_hash_response = json.loads(response.text)
+    _quota_warning(virus_total_headers, vt_user)
 
     try:
         vt_hash_response['data']
     except Exception:
         print(color.UNDERLINE + 'File Reputation:' + color.END)
         print('\tFile hash not found in VirusTotal')
-        return
+        raise IndicatorNotFound("VirusTotal")
 
     attrs = vt_hash_response['data']['attributes']
 
@@ -332,6 +364,11 @@ def print_vt_domain_report(suspect_domain, virus_total_headers, vt_user):
 
     session = _get_session()
     response = session_get(session, vt_domain_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    if response.status_code == 404:
+        print('\n\n\n' + color.BOLD + 'Domain Reputation for ' + suspect_domain + ':' + color.END)
+        print('\tDomain not found in VirusTotal')
+        raise IndicatorNotFound("VirusTotal")
+    _vt_check(response)
     vt_domain_response = json.loads(response.text)
 
     try:
@@ -339,12 +376,11 @@ def print_vt_domain_report(suspect_domain, virus_total_headers, vt_user):
     except Exception:
         print('\n\n\n' + color.BOLD + 'Domain Reputation for ' + suspect_domain + ':' + color.END)
         print('\tDomain not found in VirusTotal')
-        return
+        raise IndicatorNotFound("VirusTotal")
 
     print('\n\n\n' + color.BOLD + 'Domain Reputation for ' + suspect_domain + ':' + color.END)
 
-    if vt_user:
-        vt_api_count(virus_total_headers, vt_user)
+    _quota_warning(virus_total_headers, vt_user)
 
     attrs = vt_domain_response['data']['attributes']
 
@@ -392,9 +428,14 @@ def print_virus_total_url_report(virus_total_headers, suspect_url):
 
     session = _get_session()
     response = session_get(session, vt_url_report, headers=virus_total_headers, timeout=_TIMEOUT)
+    sanitized_url = sanitize_url(suspect_url)
+    if response.status_code == 404:
+        print(color.UNDERLINE + "\nVirusTotal URL Report for:" + color.END + " " + sanitized_url)
+        print('\tURL not found in VirusTotal (never submitted for analysis)')
+        raise IndicatorNotFound("VirusTotal")
+    _vt_check(response)
     vt_url_response = json.loads(response.text)
 
-    sanitized_url = sanitize_url(suspect_url)
     print(color.UNDERLINE + "\nVirusTotal URL Report for:" + color.END + " " + sanitized_url)
     print_ip_detections(vt_url_response)
 

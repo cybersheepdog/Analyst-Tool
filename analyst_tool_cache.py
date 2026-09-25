@@ -61,6 +61,8 @@ def get_cache_config_from_config(path="config.ini"):
         "max_notes_shown": 5,
         "exclusion_refresh_minutes": 5.0,
         "note_dedup_seconds": 60.0,
+        # A "not found" answer is cached for this long instead of freshness_days
+        "not_found_hours": 24.0,
         # remote (PostgreSQL)
         "host": "",
         "port": 5432,
@@ -118,6 +120,7 @@ def get_cache_config_from_config(path="config.ini"):
     cfg["max_notes_shown"] = _int("max_notes_shown", 5)
     cfg["exclusion_refresh_minutes"] = _float("exclusion_refresh_minutes", 5.0)
     cfg["note_dedup_seconds"] = _float("note_dedup_seconds", 60.0)
+    cfg["not_found_hours"] = _float("not_found_hours", 24.0)
     cfg["host"] = _get("host", "")
     cfg["port"] = _int("port", 5432)
     cfg["dbname"] = _get("dbname", "")
@@ -382,16 +385,22 @@ class SQLiteBackend:
                  "tags": r["tags"], "created_at": r["created_at"]}
                 for r in cur.fetchall()]
 
-    def delete_notes_by_ids(self, ids):
-        """Delete the annotation rows with these ids. Returns rows removed."""
+    def delete_notes_by_ids(self, ids, username=None):
+        """Delete the annotation rows with these ids. Returns rows removed.
+        With `username`, only rows owned by that user are deleted — a guard
+        against a stale id pointing at someone else's note."""
         ids = [int(i) for i in (ids or [])]
         if not ids:
             return 0
+        q = ("DELETE FROM indicator_annotations WHERE rowid IN (%s)"
+             % ",".join("?" * len(ids)))
+        args = list(ids)
+        if username:
+            q += " AND username=?"
+            args.append(username)
         with self._write_lock:
             conn = self._conn()
-            cur = conn.execute(
-                "DELETE FROM indicator_annotations WHERE rowid IN (%s)"
-                % ",".join("?" * len(ids)), tuple(ids))
+            cur = conn.execute(q, tuple(args))
             conn.commit()
             return cur.rowcount
 
@@ -659,16 +668,25 @@ class PostgresBackend:
                  "created_at": float(r[6]) if r[6] is not None else None}
                 for r in rows]
 
-    def delete_notes_by_ids(self, ids):
-        """Delete the annotation rows with these ids. Returns rows removed."""
+    def delete_notes_by_ids(self, ids, username=None):
+        """Delete the annotation rows with these ids. Returns rows removed.
+        With `username`, only rows owned by that user are deleted. This is
+        the owner re-check the ctid approach relies on: a ctid is a physical
+        slot that can be reused after a delete + VACUUM, so a stale id must
+        never be able to reach another analyst's note."""
         ids = [str(i) for i in (ids or []) if i]
         if not ids:
             return 0
         removed = 0
         with self._cursor() as cur:
             for rid in ids:
-                cur.execute("DELETE FROM indicator_annotations "
-                            "WHERE ctid = %s::tid", (rid,))
+                if username:
+                    cur.execute("DELETE FROM indicator_annotations "
+                                "WHERE ctid = %s::tid AND username = %s",
+                                (rid, username))
+                else:
+                    cur.execute("DELETE FROM indicator_annotations "
+                                "WHERE ctid = %s::tid", (rid,))
                 removed += max(0, cur.rowcount)
         return removed
 
@@ -809,7 +827,8 @@ class CacheManager:
     def __init__(self, backend, freshness_days=7.0, force_prefix="!",
                  purge_days=0.0, username="unknown", check_window_days=7.0,
                  check_dedup_minutes=60.0, command_prefix=">>", max_notes_shown=5,
-                 exclusion_refresh_minutes=5.0, note_dedup_seconds=60.0):
+                 exclusion_refresh_minutes=5.0, note_dedup_seconds=60.0,
+                 not_found_hours=24.0):
         self.backend = backend
         self.enabled = backend is not None
         self.freshness_seconds = max(0.0, float(freshness_days)) * 86400.0
@@ -830,6 +849,11 @@ class CacheManager:
             self.note_dedup_seconds = max(0.0, float(note_dedup_seconds))
         except Exception:
             self.note_dedup_seconds = 60.0
+        # How long a "not found" answer stays fresh (see IndicatorNotFound).
+        try:
+            self.not_found_seconds = max(0.0, float(not_found_hours)) * 3600.0
+        except Exception:
+            self.not_found_seconds = 86400.0
         self._exclusions_cache = None
         self._exclusions_loaded_at = 0.0
         self._print_lock = threading.Lock()
@@ -892,15 +916,43 @@ class CacheManager:
 
     # -- main entry point ----------------------------------------------------
 
+    # A cached "not found" answer is stored with this first line so it can be
+    # told apart from a real result and expire sooner. Stripped before display.
+    NOT_FOUND_MARK = "#analyst-tool:not-found\n"
+
+    @classmethod
+    def _split_not_found(cls, payload):
+        """Return (is_not_found, payload_without_marker)."""
+        payload = payload or ""
+        if payload.startswith(cls.NOT_FOUND_MARK):
+            return True, payload[len(cls.NOT_FOUND_MARK):]
+        return False, payload
+
     def cached_call(self, indicator, indicator_type, service, live_fn,
                     force_refresh=False):
         """Serve `service` for `indicator` from cache when fresh, else live.
 
         live_fn is the existing zero-argument function that prints the report.
         On a cache miss its printed output is captured, shown, and stored.
+
+        Outcomes (see analyst_tool_utilities.IndicatorNotFound / ServiceError):
+          * live_fn returns            → stored for freshness_days.
+          * live_fn raises
+            IndicatorNotFound          → what it printed is stored, but only
+                                         for not_found_hours: an unknown hash
+                                         may be analysed tomorrow.
+          * live_fn raises anything
+            else (quota, auth, outage) → nothing stored; a stale copy is shown
+                                         if one exists, otherwise the error
+                                         propagates to the caller.
         """
+        from analyst_tool_utilities import IndicatorNotFound
+
         if not self.enabled:
-            live_fn()
+            try:
+                live_fn()
+            except IndicatorNotFound:
+                pass            # the "not found" line was already printed
             return
 
         key = self._norm(indicator, indicator_type)
@@ -913,22 +965,29 @@ class CacheManager:
             except Exception:
                 row = None
             if row is not None:
-                try:
-                    self.backend.record_hit(key, service)
-                except Exception:
-                    pass
+                not_found, payload = self._split_not_found(row.get("payload"))
                 age = time.time() - (row["updated_at"] or time.time())
-                self._emit(self._cached_marker(age, (row["lookup_count"] or 0) + 1)
-                           + (row["payload"] or ""))
-                return
+                # A "not found" answer expires on its own, shorter clock.
+                if not (not_found and age > self.not_found_seconds):
+                    try:
+                        self.backend.record_hit(key, service)
+                    except Exception:
+                        pass
+                    self._emit(self._cached_marker(age, (row["lookup_count"] or 0) + 1)
+                               + payload)
+                    return
 
         # 2) Miss → run live, capturing its printed output.
         # Ensure the stdout tee is installed so capture works even if the caller
         # never called startup() (e.g. in tests or embedded use).
         install_capture()
+        not_found = False
         try:
             with _capture() as buf:
-                live_fn()
+                try:
+                    live_fn()
+                except IndicatorNotFound:
+                    not_found = True
             text = buf.getvalue()
         except Exception:
             # 3) Stale-while-error: live call failed — fall back to any cached
@@ -942,15 +1001,18 @@ class CacheManager:
                     self.backend.record_hit(key, service)
                 except Exception:
                     pass
+                _nf, payload = self._split_not_found(stale["payload"])
                 self._emit("\t(stale cached result — live lookup failed)\n"
-                           + stale["payload"])
+                           + payload)
                 return
             raise
 
         # Store the result (without live-only quota lines), then show the live output.
         try:
-            self.backend.store_miss(
-                key, indicator_type, service, self._strip_quota(text))
+            stored = self._strip_quota(text)
+            if not_found:
+                stored = self.NOT_FOUND_MARK + stored
+            self.backend.store_miss(key, indicator_type, service, stored)
         except Exception:
             pass
         self._emit(text)
@@ -1153,7 +1215,7 @@ class CacheManager:
 
         try:
             removed = self.backend.delete_notes_by_ids(
-                [row.get("id") for row in extra])
+                [row.get("id") for row in extra], self.username)
         except Exception as exc:
             print("\t[dedupe] Could not remove: %s" % exc)
             return 0
@@ -1414,5 +1476,6 @@ def build_cache_manager(path="config.ini"):
         command_prefix=cfg["command_prefix"],
         max_notes_shown=cfg["max_notes_shown"],
         exclusion_refresh_minutes=cfg["exclusion_refresh_minutes"],
-        note_dedup_seconds=cfg["note_dedup_seconds"])
+        note_dedup_seconds=cfg["note_dedup_seconds"],
+        not_found_hours=cfg["not_found_hours"])
     return manager

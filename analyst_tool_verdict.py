@@ -16,28 +16,66 @@ def strip_ansi(text):
     return _ANSI.sub('', text or '')
 
 
-def _int_after(text, anchor, label):
-    """Return the first integer after `label` that appears at/after `anchor`."""
+# Every service section starts with one of these header fragments. A number is
+# only ever read from inside its own service's block — from the anchor to the
+# next header — so OpenCTI's "Malicious: 40" (a 0-100 score) can never be
+# mistaken for VirusTotal's "Malicious: 40" (an engine count), whatever order
+# the sections finished in.
+_SECTION_HEADERS = (
+    'VirusTotal Detections:', 'VirusToal Detections:',      # IP (old typo kept for cached rows)
+    'VirusTotal Hash Report for', 'File Reputation:',
+    'Domain Reputation for', 'Last Analysis Stats:',
+    'VirusTotal URL Report for:',
+    'OpenCTI Info:',
+    'Abuse IP DB:',
+    'AlienVault OTX',
+    'Shodan IP Results for:', ' Shodan:',
+    'IP Information:',
+    'DNS & Certificate Transparency:', 'C2 Live', '*** TEAM NOTES', '*** MULTI-USER NOTICE',
+)
+
+
+def _block(text, anchor):
+    """Return the text from `anchor` up to the next service header, or None
+    when the anchor is absent. Never falls back to the whole report."""
     i = text.find(anchor)
-    segment = text[i:] if i >= 0 else text
-    m = re.search(re.escape(label) + r'\s*(\d+)', segment)
+    if i < 0:
+        return None
+    start = i + len(anchor)
+    end = len(text)
+    for h in _SECTION_HEADERS:
+        j = text.find(h, start)
+        if 0 <= j < end:
+            end = j
+    return text[i:end]
+
+
+def _int_after(text, anchor, label):
+    """Return the first integer after `label` inside `anchor`'s own block.
+    None when the anchor is missing, the block says the indicator was not
+    found, or the label does not occur in that block."""
+    block = _block(text, anchor)
+    if block is None:
+        return None
+    if 'not found in virustotal' in block.lower():
+        return None
+    m = re.search(re.escape(label) + r'\s*(\d+)', block)
     return int(m.group(1)) if m else None
 
 
 def _opencti_score(text):
     """Return OpenCTI's malicious score (0-100) for a real hit, else None.
 
-    OpenCTI also prints a 'Malicious:' line, so the search is bounded to the
-    OpenCTI block (from its 'OpenCTI Info:' header to its dashboard link) to
-    avoid picking up VirusTotal's malicious *count*. 'Not found' / 'not
-    configured' OpenCTI sections yield None.
+    Bounded to the OpenCTI block (its header to the next section header or
+    its dashboard link) so VirusTotal's malicious *count* is never picked up.
+    'Not found' / 'not configured' OpenCTI sections yield None.
     """
-    i = text.find('OpenCTI Info:')
-    if i < 0:
+    block = _block(text, 'OpenCTI Info:')
+    if block is None:
         return None
-    seg = text[i:]
-    end = seg.find('/dashboard/observations/indicators/')   # end of the OpenCTI block
-    block = seg[:end] if end >= 0 else seg[:300]
+    end = block.find('/dashboard/observations/indicators/')
+    if end >= 0:
+        block = block[:end]
     low = block.lower()
     if 'not found in opencti' in low or 'not configured' in low:
         return None
@@ -45,13 +83,23 @@ def _opencti_score(text):
     return int(m.group(1)) if m else None
 
 
-def build_verdict(indicator_type, raw_text):
+# Services whose absence makes a "no signals" verdict unreliable.
+_REPUTATION_SERVICES = ('VirusTotal', 'AbuseIPDB', 'AlienVault OTX', 'OpenCTI', 'C2Live')
+
+
+def build_verdict(indicator_type, raw_text, unavailable=None):
     """Return a one-line, colour-coded verdict string for a report.
 
     Severity: 2 = likely malicious (red), 1 = suspicious (orange),
     0 = no strong reputation signals (plain).
+
+    `unavailable` lists services that failed or timed out, as
+    "Service (reason)" strings; they are appended to the line, and a
+    severity-0 verdict is marked "(incomplete)" when a reputation source is
+    among them, so silence is never read as "clean".
     """
     text = strip_ansi(raw_text)
+    unavailable = list(unavailable or [])
     reasons = []     # drive severity
     context = []     # descriptive flags (VPN/Tor/datacenter/pulses)
     severity = 0
@@ -118,8 +166,12 @@ def build_verdict(indicator_type, raw_text):
         label, c = "Suspicious", color.ORANGE
     else:
         label, c = "No strong reputation signals", None
+        if any(u.startswith(svc) for u in unavailable for svc in _REPUTATION_SERVICES):
+            label += " (incomplete)"
 
     parts = reasons + context
+    if unavailable:
+        parts.append("signals unavailable: " + ", ".join(unavailable))
     detail = (" — " + "; ".join(parts)) if parts else ""
     line = "VERDICT: " + label + detail
     if c:

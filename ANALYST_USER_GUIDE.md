@@ -40,7 +40,9 @@ the tool re-fangs them automatically before looking them up.
   `VERDICT: Likely malicious — VirusTotal 12 malicious; AbuseIPDB 97%; OpenCTI
   90/100; VPN egress`. It weighs VirusTotal, AbuseIPDB, Shodan (Cobalt Strike),
   and your **OpenCTI** malicious score, with Tor/VPN/datacenter as context —
-  red = likely malicious, orange = suspicious.
+  red = likely malicious, orange = suspicious. If a service failed or timed out
+  the line ends with `signals unavailable: …`, and a quiet verdict is marked
+  `(incomplete)` so a missing source is never read as a clean result.
 - **A `*** TEAM NOTES ***` block** appears at the very top when the indicator has
   shared notes — durable context a teammate (or you) left, with author, date, and
   colour-coded tags. See "Leaving notes for the team" below.
@@ -110,13 +112,15 @@ indicator is Active, a Malicious score (**orange ≥50, red ≥75**), Confidence
 data, and which frameworks, with first/last-seen dates. "IP not found in tracked
 C2's" is the normal/clean result.
 
-> A **private (RFC1918) IP** — `10.x`, `172.16–31.x`, `192.168.x` — just returns a
-> note that it's internal; no external lookups are done.
+> A **private IP** — `10.x`, `172.16–31.x`, `192.168.x`, or an IPv6 ULA /
+> link-local address — just returns a note that it's internal; no external
+> lookups are done.
 
 ### 2. IPv6 address
 
-Returns WhoIs information (Organization, CIDR, Range, Country, abuse emails). The
-external reputation services above are IPv4-focused.
+Runs the same full report as IPv4 — VirusTotal, AbuseIPDB, Shodan, OTX, OpenCTI,
+C2Live and WhoIs all accept IPv6 (compressed `2001:db8::1` or full form). The
+Tor exit-node, VPN and datacenter lists are IPv4-only and simply answer "No".
 
 ### 3. File hash (MD5, SHA-1, or SHA-256)
 

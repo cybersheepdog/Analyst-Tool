@@ -1,10 +1,61 @@
 # Python Standard Library Imports
+import functools
 import re
 import threading
 
 # 3rd Party Imports
+import OTXv2 as _otx_sdk
 from OTXv2 import OTXv2
 from OTXv2 import IndicatorTypes
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+_OTX_TIMEOUT = 10   # seconds per HTTP call
+
+
+def _harden_otx_session(otx):
+    """Give the SDK's requests.Session a timeout and a short retry policy.
+
+    OTXv2.get() calls session.get() with no timeout, and mounts a 5-attempt
+    retry with an increasing backoff (~31 s worst case on 429/5xx). One hung
+    connection therefore blocked the whole report indefinitely. Wrapping
+    session.request with a default timeout, and mounting a 1-retry adapter
+    that does not retry 429 (quota — retrying only spends time), bounds an
+    OTX call to roughly 2 × _OTX_TIMEOUT. Best effort: any failure here leaves
+    the SDK as shipped.
+    """
+    try:
+        session = otx.session()
+        session.mount('https://', HTTPAdapter(max_retries=Retry(
+            total=1, backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504])))
+        session.request = functools.partial(session.request, timeout=_OTX_TIMEOUT)
+    except Exception:
+        pass
+    return otx
+
+
+def _otx_section(otx, itype, value, section):
+    """Fetch one OTX section, translating SDK outcomes for the cache.
+
+    OTX raises NotFound (empty message) for an indicator it has never seen —
+    a real, cacheable answer — and RetryError / InvalidAPIKey / BadRequest /
+    generic Exception for failures, which must never be cached.
+    """
+    try:
+        return otx.get_indicator_details_by_section(itype, value, section)
+    except _otx_sdk.NotFound:
+        raise IndicatorNotFound("AlienVault OTX")
+    except _otx_sdk.InvalidAPIKey:
+        raise ServiceError("AlienVault OTX", 403, "invalid API key")
+    except _otx_sdk.BadRequest as exc:
+        raise ServiceError("AlienVault OTX", 400, str(exc)[:120])
+    except _otx_sdk.RetryError:
+        raise ServiceError("AlienVault OTX", None, "retries exhausted (rate limit or outage)")
+    except (IndicatorNotFound, ServiceError):
+        raise
+    except Exception as exc:
+        raise ServiceError("AlienVault OTX", None, str(exc)[:160])
 from configparser import ConfigParser
 
 # Custom Imports
@@ -29,6 +80,7 @@ def create_av_otx_headers_from_config():
         except TypeError:
             # Older OTXv2 builds don't accept a verify kwarg — preserve original call.
             av_otx_headers = OTXv2(av_headers['otx_api_key'], server=av_headers['server'])
+        _harden_otx_session(av_otx_headers)
         print("AlienVault OTX Configured.")
         return av_otx_headers
     else:
@@ -55,17 +107,19 @@ def get_otx_intel_list_from_config():
         return None
 
 def _get_otx_ip_data(otx, suspect_ip):
-    """Fetch only the OTX sections used for IP display (3 calls instead of 8)."""
-    general     = otx.get_indicator_details_by_section(IndicatorTypes.IPv4, suspect_ip, 'general')
-    reputation  = otx.get_indicator_details_by_section(IndicatorTypes.IPv4, suspect_ip, 'reputation')
-    passive_dns = otx.get_indicator_details_by_section(IndicatorTypes.IPv4, suspect_ip, 'passive_dns')
+    """Fetch only the OTX sections used for IP display (3 calls instead of 8).
+    IPv6 literals use the IPv6 indicator type; everything else is IPv4."""
+    itype = IndicatorTypes.IPv6 if ':' in str(suspect_ip) else IndicatorTypes.IPv4
+    general     = _otx_section(otx, itype, suspect_ip, 'general')
+    reputation  = _otx_section(otx, itype, suspect_ip, 'reputation')
+    passive_dns = _otx_section(otx, itype, suspect_ip, 'passive_dns')
     # Merge into a dict that matches the shape get_indicator_details_full() returned
     return {'general': general, 'reputation': reputation, 'passive_dns': passive_dns}
 
 
 def _get_otx_domain_data(otx, suspect_domain):
     """Fetch only the OTX sections used for domain display (1 call instead of 8)."""
-    general = otx.get_indicator_details_by_section(IndicatorTypes.DOMAIN, suspect_domain, 'general')
+    general = _otx_section(otx, IndicatorTypes.DOMAIN, suspect_domain, 'general')
     return {'general': general}
 
 
@@ -85,14 +139,14 @@ def _get_otx_hash_data(otx, suspect_hash):
         print("Not an MD5, SHA1, or SHA256 hash.")
         return None
 
-    general  = otx.get_indicator_details_by_section(itype, suspect_hash, 'general')
-    analysis = otx.get_indicator_details_by_section(itype, suspect_hash, 'analysis')
+    general  = _otx_section(otx, itype, suspect_hash, 'general')
+    analysis = _otx_section(otx, itype, suspect_hash, 'analysis')
     return {'general': general, 'analysis': analysis}
 
 
 def _get_otx_url_data(otx, suspect_url):
     """Fetch only the OTX sections used for URL display (1 call instead of 8)."""
-    general = otx.get_indicator_details_by_section(IndicatorTypes.URL, suspect_url, 'general')
+    general = _otx_section(otx, IndicatorTypes.URL, suspect_url, 'general')
     return {'general': general}
 
 
@@ -102,7 +156,12 @@ def _get_otx_url_data(otx, suspect_url):
 
 def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list):
     """Query OTX for an IP and print results. Uses targeted section fetches."""
-    otx_results = _get_otx_ip_data(otx, suspect_ip)
+    try:
+        otx_results = _get_otx_ip_data(otx, suspect_ip)
+    except IndicatorNotFound:
+        print(color.UNDERLINE + "\nAlienVault OTX IP Report:" + color.END)
+        print("\tNot found in AlienVault OTX")
+        raise
 
     print(color.UNDERLINE + "\nAlienVault OTX IP Report:" + color.END)
 
@@ -129,7 +188,13 @@ def print_alien_vault_ip_results(otx, suspect_ip, otx_intel_list):
 
 def print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list):
     """Query OTX for a domain and print results. Uses targeted section fetches."""
-    otx_results = _get_otx_domain_data(otx, suspect_domain)
+    try:
+        otx_results = _get_otx_domain_data(otx, suspect_domain)
+    except IndicatorNotFound:
+        print("\n" + color.UNDERLINE + 'AlienVault OTX Domain Report for:' + color.END
+              + ' ' + suspect_domain)
+        print("\tNot found in AlienVault OTX")
+        raise
 
     print("\n" + color.UNDERLINE + 'AlienVault OTX Domain Report for:' + color.END
           + ' ' + suspect_domain)
@@ -144,7 +209,12 @@ def print_alien_vault_domain_results(otx, suspect_domain, otx_intel_list):
 
 def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list):
     """Query OTX for a hash and print results. Uses targeted section fetches."""
-    otx_results = _get_otx_hash_data(otx, suspect_hash)
+    try:
+        otx_results = _get_otx_hash_data(otx, suspect_hash)
+    except IndicatorNotFound:
+        print(color.UNDERLINE + "\nAlienVault OTX Hash Report:" + color.END)
+        print("\tNot found in AlienVault OTX")
+        raise
     if otx_results is None:
         return
 
@@ -176,8 +246,14 @@ def print_alien_vault_hash_results(otx, suspect_hash, otx_intel_list):
 
 def print_alien_vault_url_results(otx, suspect_url, otx_intel_list):
     """Query OTX for a URL and print results. Uses targeted section fetches."""
-    otx_results = _get_otx_url_data(otx, suspect_url)
     sanitized_url = sanitize_url(suspect_url)
+    try:
+        otx_results = _get_otx_url_data(otx, suspect_url)
+    except IndicatorNotFound:
+        print('\n' + color.UNDERLINE + 'AlienVault OTX URL Report for:' + color.END
+              + ' ' + sanitized_url)
+        print("\tNot found in AlienVault OTX")
+        raise
 
     print('\n' + color.UNDERLINE + 'AlienVault OTX URL Report for:' + color.END
           + ' ' + sanitized_url)

@@ -54,3 +54,52 @@ def test_opencti_drives_verdict():
     r4 = _plain("ip", "VirusToal Detections:\n\tMalicious: 0\n"
                 "OpenCTI Info: X\n\tMalicious: 20\n" + link)
     assert "No strong reputation signals" in r4
+
+
+# ── bounded scrape: each service's numbers come only from its own block ─────
+
+def test_hash_not_found_in_vt_does_not_borrow_opencti_score():
+    link = "\thttps://octi/dashboard/observations/indicators/abc\n"
+    txt = ("VirusTotal Hash Report for abc:\nFile Reputation:\n"
+           "\tFile hash not found in VirusTotal\n"
+           "OpenCTI Info:\n\tMalicious:    40\n\tConfidence:   70\n" + link)
+    v = _plain("hash", txt)
+    assert "VirusTotal" not in v                      # was "VirusTotal 40 malicious"
+    assert "No strong reputation signals" in v         # 40 < OpenCTI's own threshold
+
+    txt2 = txt.replace("Malicious:    40", "Malicious:    85")
+    v2 = _plain("hash", txt2)
+    assert "OpenCTI 85/100" in v2 and "VirusTotal" not in v2
+
+
+def test_missing_vt_anchor_never_scans_whole_report():
+    link = "\thttps://octi/dashboard/observations/indicators/abc\n"
+    # No VT section at all (task errored) — the only "Malicious:" is OpenCTI's
+    txt = "OpenCTI Info:\n\tMalicious: 30\n" + link + "Abuse IP DB:\n\tTotal Reports: 3\n"
+    v = _plain("domain", txt)
+    assert "VirusTotal" not in v and "No strong reputation signals" in v
+
+
+def test_vt_block_is_bounded_by_next_section_header():
+    # VT section first, then OpenCTI: VT's count must be read, not OpenCTI's
+    link = "\thttps://octi/dashboard/observations/indicators/abc\n"
+    txt = ("VirusTotal Detections:\n\tMalicious: 0\n\tClean: 70\n"
+           "OpenCTI Info:\n\tMalicious: 90\n" + link)
+    v = _plain("ip", txt)
+    assert "VirusTotal" not in v                      # 0 → no VT reason
+    assert "OpenCTI 90/100" in v and "Likely malicious" in v
+
+
+def test_unavailable_signals_are_reported():
+    txt = "VirusTotal Detections:\n\tMalicious: 0\n"
+    v = V.strip_ansi(V.build_verdict("ip", txt,
+                                     unavailable=["AbuseIPDB (timed out)"]))
+    assert "No strong reputation signals (incomplete)" in v
+    assert "signals unavailable: AbuseIPDB (timed out)" in v
+    # A non-reputation service missing does not mark the verdict incomplete
+    v2 = V.strip_ansi(V.build_verdict("ip", txt, unavailable=["WhoIs/Tor/VPN (timed out)"]))
+    assert "(incomplete)" not in v2 and "signals unavailable" in v2
+    # A real detection is still a real detection
+    v3 = V.strip_ansi(V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 9\n",
+                                      unavailable=["AbuseIPDB (HTTP 429)"]))
+    assert "Likely malicious" in v3 and "(incomplete)" not in v3

@@ -1,8 +1,12 @@
 # Python Standard Library Imports
+import functools
 
 # 3rd Party Imports
 from configparser import ConfigParser
 from shodan import Shodan
+from shodan.exception import APIError
+
+_SHODAN_TIMEOUT = 10   # seconds per HTTP call
 
 # Custom Imports
 from analyst_tool_utilities import *
@@ -44,7 +48,27 @@ def get_print_shodan_ip_results(shodan_headers, suspect_ip):
             api._session.verify = False
         except Exception:
             pass
-    results = api.host(suspect_ip)
+    # The shodan SDK sends every request with no timeout; give its Session a
+    # default so a stalled connection can't hold the whole report (best effort).
+    try:
+        api._session.request = functools.partial(api._session.request,
+                                                 timeout=_SHODAN_TIMEOUT)
+    except Exception:
+        pass
+
+    try:
+        results = api.host(suspect_ip)
+    except APIError as exc:
+        # "No information available for that IP." is Shodan's 404 — a real,
+        # cacheable answer. Anything else (bad key, rate limit, outage) is a
+        # failure that must not be cached.
+        msg = str(exc)
+        if 'no information available' in msg.lower():
+            print(color.UNDERLINE + '\nShodan IP Results for:' + color.END + f" {suspect_ip}")
+            print('\tNot found in Shodan')
+            print(f"\n\thttps://www.shodan.io/host/{suspect_ip}")
+            raise IndicatorNotFound("Shodan")
+        raise ServiceError("Shodan", None, msg[:160])
 
     print(color.UNDERLINE + '\nShodan IP Results for:' + color.END + f" {suspect_ip}")
     print('\n\t{:<25} {}'.format('Last Seen:', results['last_update']))

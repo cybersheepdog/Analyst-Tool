@@ -57,9 +57,8 @@ report appears automatically. Copy the next one for the next report.
 
 | Copy this | You get |
 |-----------|---------|
-| **Public IPv4** | VirusTotal, Shodan (+ Cobalt Strike beacon), WhoIs, Tor check, VPN + datacenter checks, AbuseIPDB, OTX, OpenCTI, C2Live — all at once |
-| **Private IPv4** | A note that it's an RFC1918 address |
-| **IPv6** | WhoIs (org, CIDR, range, country, emails) |
+| **Public IP (IPv4 or IPv6)** | VirusTotal, Shodan (+ Cobalt Strike beacon), WhoIs, Tor check, VPN + datacenter checks, AbuseIPDB, OTX, OpenCTI, C2Live — all at once |
+| **Private IP** | A note that it's an RFC1918 / link-local address |
 | **File hash** (MD5/SHA1/SHA256) | VirusTotal + OpenCTI + OTX hash reports |
 | **Domain** | VirusTotal + OpenCTI + OTX reports, plus DNS resolution + crt.sh subdomains |
 | **CVE** (`CVE-2021-44228`) | NVD details (CVSS/severity/description) + CISA KEV status |

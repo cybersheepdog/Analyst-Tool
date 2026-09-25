@@ -8,7 +8,7 @@ A python script which can be run in the terminal or a Jupyter Notebook to automa
 - Domains
 - URLs
 - Hashes (MD5 / SHA-1 / SHA-256)
-- IP addresses (IPv4 and IPv6)
+- IP addresses (IPv4 and IPv6 — both get the full report)
 - Mitre ATT&CK Tactics, Techniques & Sub-Techniques
 - LOLBAS (living-off-the-land binaries) & LOLDrivers
 - CVEs (NVD details + CISA Known Exploited Vulnerabilities status)

@@ -120,11 +120,13 @@ The effective skip list is the union of the local list and the shared list. See
 ```ini
 [GENERAL]
 ssl_verify = true
+lookup_deadline_seconds = 20
 ```
 
 | Key | Purpose |
 |-----|---------|
 | `ssl_verify` | `true` (default) verifies TLS certificates on all outbound calls. `false` enables an insecure fallback — see [SSL verification](#ssl-verification--the-ssl_verify-fallback). Leave it `true` unless you specifically need it. |
+| `lookup_deadline_seconds` | How long a report waits for its slowest service before printing without it. A service that misses the deadline is shown as timed out and listed in the verdict under "signals unavailable". Default `20`; `0` waits indefinitely. |
 
 ### `[CACHE]` — result caching
 
@@ -152,6 +154,7 @@ sslmode = prefer
 | `enabled` | `true` (default) caches lookups; `false` disables caching entirely (every lookup is live). |
 | `backend` | `local` uses a SQLite file (single user); `remote` uses a shared PostgreSQL server (a team saves calls together). |
 | `freshness_days` | A cached result younger than this many days is reused instead of re-querying the API. Default `7`. |
+| `not_found_hours` | A "not found" answer (VirusTotal 404, unknown to Shodan/OTX) is reused for only this many hours. API errors (quota, auth, outage) are never cached. Default `24`. |
 | `db_path` | SQLite database file (local backend only). |
 | `force_prefix` | Copy an indicator with this prefix to force a fresh lookup, e.g. `!8.8.8.8`. Default `!`. |
 | `purge_days` | Delete cached entries older than this many days at startup. `0` = never purge. |
@@ -411,9 +414,8 @@ automatically. Detection is evaluated in this order (the first match wins):
 | 7 | **MITRE ATT&CK ID** | A tactic `TA####`, technique `T####`, or sub-technique `T####.###` | The tactic/technique/sub-technique name, ATT&CK URL, description, and detection guidance. Renders as Markdown in Jupyter, plain text in the terminal |
 | 8 | **Epoch timestamp** | A 10–16 digit Unix timestamp (optionally with a decimal) | The human-readable date/time |
 | 9 | **OTX Pulse ID** | A 24-character hex pulse ID | Full pulse details: author, name, TLP, created/modified dates, tags, malware families, description, and references |
-| 10 | **IPv6 address** | An IPv6-formatted address | WhoIs information (organization, CIDR, range, country, associated emails) |
-| 11 | **Private IPv4** | An RFC1918 address (e.g. `10.0.0.5`, `192.168.1.1`) | A note that it's a private/RFC1918 address (no external lookups) |
-| 12 | **Public IPv4** | Any other valid IPv4 address | A full IP analysis report — see below |
+| 10 | **Private IP** | An RFC1918 / ULA / link-local address (e.g. `10.0.0.5`, `192.168.1.1`, `fe80::1`) | A note that it's a private address (no external lookups) |
+| 11 | **Public IP (IPv4 or IPv6)** | Any other valid IP address, e.g. `45.145.66.165` or `2001:db8::1` (compressed or full form) | A full IP analysis report — see below. IPv6 goes through the same services; the IPv4-only Tor/VPN/datacenter lists simply answer "No" |
 | 13 | **CVE id** | `CVE-2021-44228` | NVD details (CVSS, severity, description) + whether it's on the CISA Known Exploited Vulnerabilities list |
 
 Two behaviours apply to all of the above:
@@ -429,7 +431,22 @@ Two behaviours apply to all of the above:
   summary line, e.g. `VERDICT: Likely malicious — VirusTotal 12 malicious;
   AbuseIPDB 97%; OpenCTI 90/100; VPN egress`. It weighs VirusTotal, AbuseIPDB,
   Shodan (Cobalt Strike) and your OpenCTI malicious score, with Tor/VPN/datacenter
-  as context, so you can triage at a glance before reading the detail.
+  as context, so you can triage at a glance before reading the detail. Each
+  number is read only from its own service's section, so an OpenCTI score can
+  never be mistaken for a VirusTotal engine count. If a service failed or timed
+  out, the line ends with `signals unavailable: VirusTotal (HTTP 429 — Quota
+  exceeded)` and a quiet verdict is marked `(incomplete)` — silence is never
+  presented as "clean".
+- **Timeouts** — every API call has a per-request timeout, and a whole report
+  waits at most `lookup_deadline_seconds` (default 20, `[GENERAL]`) for its
+  slowest service. A service that misses the deadline shows as
+  `[Shodan] timed out after 20s` and the report prints without it; a service
+  that answered with an error shows as `[VirusTotal] unavailable: HTTP 429 — …`.
+- **Not found vs. failed** — "not found in VirusTotal / OTX / Shodan" is a real
+  answer and is cached, but only for `not_found_hours` (default 24) rather than
+  `freshness_days`, since an unknown hash may be analysed tomorrow. A quota,
+  auth or outage error is never cached; if an older result exists it is shown
+  marked `(stale cached result — live lookup failed)`.
 
 Example of an enriched number lookup (shown as both a port and an Event ID):
 
@@ -474,7 +491,7 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
 | **OpenCTI** | Yes | IPs, domains, URLs, hashes | Builds clickable dashboard links |
 | **Shodan** | Yes | IPs | Includes Cobalt Strike beacon detection |
 | **C2Live** | Yes (self-hosted ES) | IPs | Queries your own Elasticsearch C2 index |
-| **WhoIs** | No | IPv4 & IPv6 | Via `ipwhois`; no API key required |
+| **WhoIs** | No | IPv4 & IPv6 | Via `ipwhois`; no API key required. 8 s connection timeout |
 | **Tor check** | No | IPs | Exit-node list cached ~45 minutes |
 | **VPN check** | No | IPs (IPv4) | X4BNet VPN ranges (cached ~24h) + WhoIs org/ASN provider-name match; heuristic |
 | **Datacenter check** | No | IPs (IPv4) | X4BNet datacenter ranges, cached ~24 hours |

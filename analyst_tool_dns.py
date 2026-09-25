@@ -11,7 +11,7 @@
 
 import socket
 
-from analyst_tool_utilities import color, session_get
+from analyst_tool_utilities import color, session_get, resolve_ptr
 
 import requests
 
@@ -39,9 +39,10 @@ def resolve_addresses(domain):
 
 
 def reverse_ptr(ip):
-    """Return the PTR hostname for an IP, or None."""
+    """Return the PTR hostname for an IP, or None. Bounded (3 s): a resolver
+    with no PTR for the address can otherwise block for its full retry cycle."""
     try:
-        return socket.gethostbyaddr(ip)[0]
+        return resolve_ptr(ip, timeout=3.0)
     except Exception:
         return None
 

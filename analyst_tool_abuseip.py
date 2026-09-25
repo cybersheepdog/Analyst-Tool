@@ -53,7 +53,16 @@ def check_abuse_ip_db(suspect_ip, abuse_ip_db_headers):
         params=querystring,
         timeout=_TIMEOUT
     )
+    # AbuseIPDB answers 200 for every valid IP (unknown ones score 0), so
+    # anything else is a failure, never a result: 429 quota, 401 bad key, 422
+    # unusable input. Raise so the cache never stores it.
+    if abuse_ip_response.status_code != 200:
+        raise ServiceError("AbuseIPDB", abuse_ip_response.status_code,
+                           api_error_message(abuse_ip_response))
     abuse_ip_report = json.loads(abuse_ip_response.text)
+    if not isinstance(abuse_ip_report.get('data'), dict):
+        raise ServiceError("AbuseIPDB", abuse_ip_response.status_code,
+                           "unexpected response body")
 
     print(color.UNDERLINE + '\nAbuse IP DB:' + color.END)
 

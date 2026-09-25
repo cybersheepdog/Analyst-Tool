@@ -13,6 +13,7 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 import threading
 
 # 3rd Party Imports
@@ -47,7 +48,9 @@ epoch_regex = '^[0-9]{10,16}(\.[0-9]{0,6})?$'
 otx_pulse_regex = '^[0-9a-fA-F]{24}$'
 hash_validation_regex = '^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$'
 port_wid_validation_regex = '^[0-9]{1,5}$'
-ipv6_regex = '^([0-9a-fA-F]{0,4}:){6}[0-9a-fA-F]{0,4}$'
+# IPv6 is detected with ipaddress.ip_address() (see parse_ip in utilities);
+# the old 7-group regex matched no real IPv6 address. Kept for compatibility.
+ipv6_regex = r'^(?=.*:)[0-9a-fA-F:.]+$'
 # Gate regex for MITRE ATT&CK IDs: tactic (TA####), technique (T####) or
 # sub-technique (T####.###). The AsyncAnalystToolMitre.lookup() method then
 # does its own finer-grained matching to pick the correct handler.
@@ -108,7 +111,9 @@ def analyst(terminal=0):
         - API calls for each indicator are dispatched concurrently (ThreadPoolExecutor).
         - Sleep is adaptive: 1s when idle, 3s after a lookup fires, to improve responsiveness.
         - MITRE data is only re-initialized via attack_client() when the on-disk JSON cache is stale.
-        - All network calls carry a 10s timeout to prevent indefinite hangs on slow/downed services.
+        - Every network call carries a per-request timeout, and a whole report waits at most
+          [GENERAL] lookup_deadline_seconds (default 20) for its slowest service; a service
+          that misses the deadline is reported as "timed out" and the verdict says so.
     """
 
     abuse_ip_db_headers = create_abuse_ip_db_headers_from_config()
@@ -300,25 +305,24 @@ def analyst(terminal=0):
                         suspect_pulse = clipboard_contents
                         print_otx_pulse_info(suspect_pulse, otx, otx_intel_list)
 
-                    # ── IPv6 ──────────────────────────────────────────────────────────────
-                    elif re.match(ipv6_regex, clipboard_contents):
-                        suspect_ip = clipboard_contents.strip()
-                        ip_whois(suspect_ip)
-
-                    # ── Private IPv4 ──────────────────────────────────────────────────────
-                    elif ipaddress.IPv4Address(clipboard_contents).is_private:
-                        print('\n\n\nThis is an RFC1918 IP Address' + '\n\n\n')
-
-                    # ── Public IPv4 ───────────────────────────────────────────────────────
-                    elif ipaddress.IPv4Address(clipboard_contents):
-                        suspect_ip = clipboard_contents
-                        last_indicator = (suspect_ip, 'ip')
-                        get_ip_analysis_results(
-                            suspect_ip, virus_total_headers, abuse_ip_db_headers,
-                            otx, otx_intel_list, vt_user, opencti_headers, shodan_headers,
-                            cache=cache, force_refresh=force_refresh
-                        )
-                        query_c2live(suspect_ip, c2live_headers)
+                    # ── IP address (IPv4 or IPv6) ─────────────────────────────────────────
+                    # Both versions go through the same report: VirusTotal,
+                    # AbuseIPDB, Shodan, OTX and whois all accept IPv6. The
+                    # v4-only Tor/VPN/datacenter lists simply answer "No".
+                    elif parse_ip(clipboard_contents) is not None:
+                        addr = parse_ip(clipboard_contents)
+                        if addr.is_private:
+                            print('\n\n\nThis is a private (RFC1918 / ULA / link-local) IP Address'
+                                  + '\n\n\n')
+                        else:
+                            suspect_ip = str(addr)   # canonical form (compressed IPv6)
+                            last_indicator = (suspect_ip, 'ip')
+                            get_ip_analysis_results(
+                                suspect_ip, virus_total_headers, abuse_ip_db_headers,
+                                otx, otx_intel_list, vt_user, opencti_headers, shodan_headers,
+                                cache=cache, force_refresh=force_refresh
+                            )
+                            query_c2live(suspect_ip, c2live_headers)
 
                     else:
                         matched = False
@@ -341,73 +345,148 @@ def analyst(terminal=0):
 # Print order is non-deterministic (first-to-finish prints first).
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _run_parallel(tasks, max_workers=None):
-    """Execute a list of zero-argument callables concurrently.
-    Exceptions inside individual tasks are caught and printed so one
-    misbehaving service never blocks the others from printing.
+# One process-wide pool. Creating a pool per lookup meant `with ThreadPoolExecutor`
+# blocked on exit until every task returned — so a single hung service froze the
+# clipboard loop. With a shared pool a lookup can stop waiting at its deadline
+# and let the straggler finish (and be discarded) in the background. Sized so
+# one lookup's stragglers can never starve the next one: max 6 tasks per report.
+_LOOKUP_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix='lookup')
+
+# Friendly names for the nested task functions, used in timeout / error lines
+# and in the verdict's "signals unavailable" note.
+_TASK_LABELS = {
+    '_vt': 'VirusTotal', '_otx': 'AlienVault OTX', '_shodan': 'Shodan',
+    '_abuseipdb': 'AbuseIPDB', '_opencti': 'OpenCTI', '_whois_tor': 'WhoIs/Tor/VPN',
+    '_dns': 'DNS/crt.sh', '_c2live': 'C2Live',
+}
+
+
+def _task_label(task):
+    name = getattr(task, '__name__', repr(task))
+    return _TASK_LABELS.get(name, name)
+
+
+def _deadline():
+    """Seconds to wait for a report's slowest service; None = no limit."""
+    try:
+        d = get_lookup_deadline_from_config()
+    except Exception:
+        d = 20.0
+    return d if d and d > 0 else None
+
+
+def _run_task(task):
+    """Run one service task, printing a one-line reason on failure.
+
+    Returns None on success, or a short reason string ('HTTP 429 — ...',
+    'timed out', ...) that the verdict reports as an unavailable signal.
+    An IndicatorNotFound that escapes (cache disabled) is a normal answer.
     """
-    if max_workers is None:
-        max_workers = len(tasks)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(t): getattr(t, '__name__', repr(t)) for t in tasks}
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as exc:
-                print(f"\t[error in {futures[future]}]: {exc}")
+    label = _task_label(task)
+    try:
+        task()
+        return None
+    except IndicatorNotFound:
+        return None
+    except ServiceError as exc:
+        reason = (("HTTP %s" % exc.status) if exc.status is not None else "unavailable")
+        if exc.message:
+            reason += " — " + str(exc.message)
+        print("\t[%s] unavailable: %s" % (label, reason))
+        return reason
+    except Exception as exc:
+        print("\t[error in %s]: %s" % (getattr(task, '__name__', repr(task)), exc))
+        return "error"
+
+
+def _run_parallel(tasks, max_workers=None):
+    """Execute a list of zero-argument callables concurrently (streaming: each
+    task prints straight to the console as it finishes). Exceptions inside
+    individual tasks are caught and printed so one misbehaving service never
+    blocks the others. Stops waiting at the lookup deadline."""
+    futures = {_LOOKUP_POOL.submit(_run_task, t): t for t in tasks}
+    try:
+        for future in as_completed(futures, timeout=_deadline()):
+            future.result()
+    except FuturesTimeoutError:
+        for future, task in futures.items():
+            if not future.done():
+                future.cancel()
+                print("\t[%s] timed out after %.0fs" % (_task_label(task), _deadline()))
 
 
 def _run_parallel_capture(tasks, max_workers=None):
     """Run tasks concurrently but capture each one's printed output, returning
-    the captured strings in submission order.
+    (texts, unavailable) — the captured strings in submission order, and a
+    list of "Service (reason)" strings for tasks that failed or timed out.
 
     Used to build a verdict at the top of a report: we gather all the service
     output first (into per-task buffers via the cache's thread-local capture),
     then the caller prints the verdict followed by the captured detail.
+
+    A task that misses the deadline is left running on the pool; its output
+    goes to its own thread-local buffer and is discarded, so nothing prints
+    late into the next report.
     """
     from analyst_tool_cache import _capture, install_capture
     install_capture()  # ensure the stdout tee is present even if caching is off
 
-    if max_workers is None:
-        max_workers = len(tasks)
-
     results = [""] * len(tasks)
+    reasons = [None] * len(tasks)    # per task, in submission order
 
     def _wrap(i, task):
         with _capture() as buf:
-            try:
-                task()
-            except Exception as exc:
-                print(f"\t[error in {getattr(task, '__name__', repr(task))}]: {exc}")
-        return i, buf.getvalue()
+            reason = _run_task(task)
+        return i, buf.getvalue(), reason
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_wrap, i, t) for i, t in enumerate(tasks)]
-        for future in as_completed(futures):
-            i, text = future.result()
+    futures = {_LOOKUP_POOL.submit(_wrap, i, t): (i, t) for i, t in enumerate(tasks)}
+    try:
+        for future in as_completed(futures, timeout=_deadline()):
+            i, text, reason = future.result()
             results[i] = text
-    return results
+            reasons[i] = reason
+    except FuturesTimeoutError:
+        deadline = _deadline()
+        for future, (i, task) in futures.items():
+            if not future.done():
+                future.cancel()
+                results[i] = "\t[%s] timed out after %.0fs\n" % (_task_label(task), deadline)
+                reasons[i] = "timed out"
+    unavailable = ["%s (%s)" % (_task_label(tasks[i]), r)
+                   for i, r in enumerate(reasons) if r]
+    return results, unavailable
 
 
 def _run_with_verdict(indicator_type, tasks, max_workers=None, indicator=None):
     """Run the report tasks, print a one-line verdict, then the detail.
 
-    Falls back to the original streaming behaviour if anything in the capture/
-    verdict path fails, so a report is never lost. When `indicator` is given,
-    the finished report (verdict + detail) is also kept in the in-memory
-    report buffer so `>>report` can export it later.
+    If the capture machinery itself fails, fall back to the streaming
+    behaviour so a report is never lost. A failure *after* the tasks have run
+    (verdict or report buffer) prints what was captured rather than re-running
+    the tasks, which would spend every API call a second time. When
+    `indicator` is given, the finished report (verdict + detail) is also kept
+    in the in-memory report buffer so `>>report` can export it later.
     """
     try:
-        from analyst_tool_verdict import build_verdict
-        texts = _run_parallel_capture(tasks, max_workers)
-        combined = "".join(texts)
-        verdict = build_verdict(indicator_type, combined)
-        print(verdict)
-        print(combined, end="")
-        if indicator:
-            record_report(indicator, indicator_type, verdict + "\n" + combined)
+        texts, unavailable = _run_parallel_capture(tasks, max_workers)
     except Exception:
         _run_parallel(tasks, max_workers)
+        return
+    combined = "".join(texts)
+    try:
+        from analyst_tool_verdict import build_verdict
+        verdict = build_verdict(indicator_type, combined, unavailable=unavailable)
+    except Exception:
+        verdict = None
+    if verdict:
+        print(verdict)
+    print(combined, end="")
+    if indicator:
+        try:
+            record_report(indicator, indicator_type,
+                          ((verdict + "\n") if verdict else "") + combined)
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -424,12 +503,7 @@ def _indicator_type(token):
         return 'hash'
     if re.match(cve_regex, t, re.IGNORECASE):
         return 'cve'
-    try:
-        ipaddress.IPv4Address(t)
-        return 'ip'
-    except Exception:
-        pass
-    if re.match(ipv6_regex, t):
+    if parse_ip(t) is not None:
         return 'ip'
     try:
         if validators.url(t) is True:
@@ -568,10 +642,7 @@ def _is_recognized_indicator(value, lolbas, driver):
             return True
         if re.match(otx_pulse_regex, value):
             return True
-        if re.match(ipv6_regex, value):
-            return True
-        ipaddress.IPv4Address(value)
-        return True
+        return parse_ip(value) is not None
     except Exception:
         return False
 
@@ -827,10 +898,9 @@ def get_ip_analysis_results(suspect_ip, virus_total_headers, abuse_ip_db_headers
         if abuse_ip_db_headers is None:
             _abuseipdb_live()
         else:
-            try:
-                _cc('abuseipdb', _abuseipdb_live)
-            except Exception:
-                print('\tIssue with Abuse IP DB API.')
+            # Errors propagate to _run_task, which prints
+            # "[AbuseIPDB] unavailable: HTTP 429 — ..." and tells the verdict.
+            _cc('abuseipdb', _abuseipdb_live)
 
     def _otx_live():
         if otx is None:
@@ -869,7 +939,7 @@ def ip_whois(suspect_ip):
                 Email:                abuse@hostway.ru
     """
     org_match = '([a-zA-Z0-9 .,_")(-]+)\n?'
-    obj = IPWhois(suspect_ip)
+    obj = IPWhois(suspect_ip, timeout=8)   # per-connection timeout (RIR whois, port 43)
     res = obj.lookup_whois()
     company_count = 0
     whois_orgs = []   # collected org/ASN text, returned for VPN-provider matching
