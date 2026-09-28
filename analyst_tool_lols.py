@@ -2,6 +2,7 @@
 import json
 import os
 import textwrap
+import threading
 import time
 import requests
 
@@ -25,6 +26,13 @@ current_time   = time.time()
 threshold_time = current_time - (file_age * 86400)
 
 _session = requests.Session()               # reused for all downloads
+
+# When a catalogue can't be loaded at startup (no network and no usable
+# cached copy), lookups start disabled and a daemon thread retries the
+# download this often until it succeeds.
+_RETRY_SECONDS = 600
+_retry_started: set = set()                 # labels with a retry thread running
+_retry_lock = threading.Lock()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Module-level caches — populated by get_lolbas_json / get_loldriver_json
@@ -59,11 +67,7 @@ def _load_or_fetch(url: str, fname: str, threshold: float) -> str:
             return f.read()
 
     def _fetch_and_save() -> str:
-        resp = session_get(_session, url, timeout=15)
-        resp.raise_for_status()
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write(resp.text)
-        return resp.text
+        return _fetch_and_save_file(url, fname)
 
     try:
         mod_time = os.path.getmtime(fname)
@@ -79,12 +83,111 @@ def _load_or_fetch(url: str, fname: str, threshold: float) -> str:
         return _fetch_and_save()
 
 
+def _fetch_and_save_file(url: str, fname: str) -> str:
+    """Download url, save it to fname, return the text (raises on failure)."""
+    resp = session_get(_session, url, timeout=15)
+    resp.raise_for_status()
+    with open(fname, "w", encoding="utf-8") as f:
+        f.write(resp.text)
+    return resp.text
+
+
+def _parse_catalogue(raw: str) -> list:
+    """Parse a catalogue download; raises ValueError on anything but a list
+    (an HTML error page or a truncated file must not become 'loaded')."""
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("unexpected JSON (not a list)")
+    return data
+
+
+def _short(exc) -> str:
+    """A readable reason for the one-line console message (the full
+    exception goes to analyst_tool.log)."""
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "download timed out"
+    if isinstance(exc, (requests.exceptions.ProxyError, requests.exceptions.ConnectionError)):
+        return "no network"
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        return "HTTP %s" % exc.response.status_code
+    if isinstance(exc, ValueError):
+        return "bad or corrupt data"
+    text = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    return text if len(text) <= 90 else text[:87] + "..."
+
+
+def _log(level, msg, *args):
+    try:
+        from analyst_tool_log import get_logger
+        getattr(get_logger(), level)(msg, *args)
+    except Exception:
+        pass
+
+
+def _start_retry(label: str, url: str, fname: str, on_loaded) -> None:
+    """Retry the download on a daemon thread every _RETRY_SECONDS until it
+    succeeds, then hand the parsed list to on_loaded(). One thread per label."""
+    with _retry_lock:
+        if label in _retry_started:
+            return
+        _retry_started.add(label)
+
+    def _loop():
+        while True:
+            time.sleep(_RETRY_SECONDS)
+            try:
+                data = _parse_catalogue(_fetch_and_save_file(url, fname))
+                on_loaded(data)
+            except Exception as exc:
+                # Never let the thread die: a failure here would leave the
+                # catalogue off for the rest of the session with no retry.
+                _log("info", "%s retry failed: %s", label, _short(exc))
+                continue
+            with _retry_lock:
+                _retry_started.discard(label)
+            print("\n%s loaded (%d entries) — lookups enabled." % (label, len(data)))
+            _log("info", "%s loaded by background retry (%d entries)", label, len(data))
+            return
+
+    threading.Thread(target=_loop, name="%s-retry" % label, daemon=True).start()
+
+
+def _load_catalogue(label: str, url: str, fname: str, threshold: float, on_loaded) -> str:
+    """Load a catalogue for startup. Returns the raw JSON text, or "" when it is
+    unavailable — no network and no usable cached copy (missing or corrupt).
+
+    Before, that case raised straight out of analyst() and the tool would not
+    start at all. Now lookups for this catalogue are simply off, and a
+    background retry turns them on once a download succeeds.
+    """
+    try:
+        raw = _load_or_fetch(url, fname, threshold)
+        data = _parse_catalogue(raw)
+    except Exception as exc:
+        print("%s unavailable (%s) — lookups off, retrying every %d min."
+              % (label, _short(exc), max(1, _RETRY_SECONDS // 60)))
+        _log("warning", "%s unavailable at startup: %s: %s", label, type(exc).__name__, exc)
+        _start_retry(label, url, fname, on_loaded)
+        return ""
+    on_loaded(data)
+    return raw
+
+
+def _lookup_key(value) -> str:
+    """Normalise a copied binary name for catalogue lookup: the file name
+    only (a full path like C:\\Windows\\System32\\certutil.exe is what logs
+    give you), lowercased (the catalogues capitalise: Certutil.exe)."""
+    v = (value or "").strip().strip('"\'')
+    v = v.replace('\\', '/').rsplit('/', 1)[-1]
+    return v.lower()
+
+
 def _build_lolbas_indexes(data: list) -> None:
     """Populate the module-level LOLBAS caches from a parsed list."""
     global _lolbas_by_name, _lolbas_extensions
-    _lolbas_by_name = {entry['Name']: entry for entry in data}
+    _lolbas_by_name = {_lookup_key(entry['Name']): entry for entry in data}
     _lolbas_extensions = {
-        entry['Name'].rsplit('.', 1)[-1].strip()
+        entry['Name'].rsplit('.', 1)[-1].strip().lower()
         for entry in data
         if '.' in entry['Name']
     }
@@ -98,10 +201,10 @@ def _build_loldriver_indexes(data: list) -> None:
     for entry in data:
         tags = entry.get('Tags') or []
         for tag in tags:
-            _loldriver_by_tag[tag] = entry
+            _loldriver_by_tag[_lookup_key(tag)] = entry
             parts = tag.split('.')
             if len(parts) > 1:
-                _loldriver_extensions.add(parts[-1].strip())
+                _loldriver_extensions.add(parts[-1].strip().lower())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,11 +217,16 @@ def get_lolbas_json(lolbas_url, filename, file_age, current_time, threshold_time
     Indexes are built once here so that get_lolbas_file_endings() and
     lookup_lolbas() never re-parse the JSON.
     """
-    global _lolbas_json
-    raw = _load_or_fetch(lolbas_url, filename, threshold_time)
-    _lolbas_json = json.loads(raw)
-    _build_lolbas_indexes(_lolbas_json)
-    print("LolBas configured.")
+    def _loaded(data):
+        global _lolbas_json
+        _lolbas_json = data
+        _build_lolbas_indexes(data)
+
+    # "" when unavailable: the fallback re-parse in the lookup helpers is
+    # skipped for a falsy value, so it can't race the background retry.
+    raw = _load_catalogue("LolBas", lolbas_url, filename, threshold_time, _loaded)
+    if raw:
+        print("LolBas configured.")
     return raw
 
 
@@ -128,11 +236,14 @@ def get_loldriver_json(loldriver_url, filename2, file_age, current_time, thresho
     Indexes are built once here so that get_loldriver_file_endings() and
     lookup_loldriver() never re-parse the JSON.
     """
-    global _loldriver_json
-    raw = _load_or_fetch(loldriver_url, filename2, threshold_time)
-    _loldriver_json = json.loads(raw)
-    _build_loldriver_indexes(_loldriver_json)
-    print("LolDriver configured")
+    def _loaded(data):
+        global _loldriver_json
+        _loldriver_json = data
+        _build_loldriver_indexes(data)
+
+    raw = _load_catalogue("LolDriver", loldriver_url, filename2, threshold_time, _loaded)
+    if raw:
+        print("LolDriver configured")
     return raw
 
 
@@ -149,8 +260,9 @@ def get_lolbas_file_endings(lolbas, clipboard_contents) -> bool:
         data = json.loads(lolbas)
         _build_lolbas_indexes(data)
 
+    key = _lookup_key(clipboard_contents)
     for ext in _lolbas_extensions:
-        if clipboard_contents.endswith(ext):
+        if key.endswith('.' + ext):
             return True
     return False
 
@@ -164,8 +276,9 @@ def get_loldriver_file_endings(driver, clipboard_contents) -> bool:
         data = json.loads(driver)
         _build_loldriver_indexes(data)
 
+    key = _lookup_key(clipboard_contents)
     for ext in _loldriver_extensions:
-        if clipboard_contents.endswith(ext):
+        if key.endswith('.' + ext):
             return True
     return False
 
@@ -180,7 +293,7 @@ def lookup_lolbas(lolbas, clipboard_contents) -> None:
         data = json.loads(lolbas)
         _build_lolbas_indexes(data)
 
-    entry = _lolbas_by_name.get(clipboard_contents)
+    entry = _lolbas_by_name.get(_lookup_key(clipboard_contents))
 
     if entry is None:
         print(f"\n\t{clipboard_contents} is not a known LolBin.")
@@ -230,7 +343,7 @@ def lookup_loldriver(driver, clipboard_contents) -> None:
         data = json.loads(driver)
         _build_loldriver_indexes(data)
 
-    entry = _loldriver_by_tag.get(clipboard_contents)
+    entry = _loldriver_by_tag.get(_lookup_key(clipboard_contents))
 
     if entry is None:
         print(f"\n\t{clipboard_contents} is not a known LolDriver.")

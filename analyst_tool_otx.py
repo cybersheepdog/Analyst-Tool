@@ -263,7 +263,7 @@ def print_alien_vault_url_results(otx, suspect_url, otx_intel_list):
 
     print("\t{:<25} {}".format("Related Pulses:",
                                otx_results['general']['pulse_info']['count']))
-    print("https://otx.alienvault.com/indicator/domain/" + suspect_url)
+    print("https://otx.alienvault.com/indicator/url/" + suspect_url)
 
 
 def print_otx_pulse_info(suspect_pulse, otx, otx_intel_list):

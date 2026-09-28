@@ -42,7 +42,13 @@ the tool re-fangs them automatically before looking them up.
   and your **OpenCTI** malicious score, with Tor/VPN/datacenter as context —
   red = likely malicious, orange = suspicious. If a service failed or timed out
   the line ends with `signals unavailable: …`, and a quiet verdict is marked
-  `(incomplete)` so a missing source is never read as a clean result.
+  `(incomplete)` so a missing source is never read as a clean result. Team notes
+  count too: a `#c2` / `#malware` note makes it *Likely malicious*, a `#fp` /
+  `#benign` note makes it *Benign (team)* — or an orange *CONFLICT* if a service
+  still says malicious.
+- **Paste a whole alert** (or a list of IPs) and you get one verdict line per
+  indicator; `>>full 3` prints row 3's full report. Copies made while a report is
+  running are queued, and on Windows re-copying the same value runs it again.
 - **A `*** TEAM NOTES ***` block** appears at the very top when the indicator has
   shared notes — durable context a teammate (or you) left, with author, date, and
   colour-coded tags. See "Leaving notes for the team" below.
@@ -119,8 +125,14 @@ C2's" is the normal/clean result.
 ### 2. IPv6 address
 
 Runs the same full report as IPv4 — VirusTotal, AbuseIPDB, Shodan, OTX, OpenCTI,
-C2Live and WhoIs all accept IPv6 (compressed `2001:db8::1` or full form). The
+C2Live and WhoIs all accept IPv6 (compressed `2606:4700::1111` or full form). The
 Tor exit-node, VPN and datacenter lists are IPv4-only and simply answer "No".
+
+> **Copy it the way the log gives it to you.** `45.145.66.165:443` looks up the
+> IP (and says the port was ignored), `evil.com.` drops the trailing dot,
+> `8.8.8.8/32` looks up the address, and `evil.com/login` is treated as
+> `http://evil.com/login` so you get VirusTotal's URL report. File names such as
+> `report.docx` or `kernel32.dll` are no longer mistaken for domains.
 
 ### 3. File hash (MD5, SHA-1, or SHA-256)
 

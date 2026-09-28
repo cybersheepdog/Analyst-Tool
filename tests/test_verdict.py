@@ -103,3 +103,33 @@ def test_unavailable_signals_are_reported():
     v3 = V.strip_ansi(V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 9\n",
                                       unavailable=["AbuseIPDB (HTTP 429)"]))
     assert "Likely malicious" in v3 and "(incomplete)" not in v3
+
+
+# ── team tags ────────────────────────────────────────────────────────────────
+
+_FP = {"kind": "good", "tags": ["fp"], "by": "alice", "when": "2026-08-31"}
+_C2 = {"kind": "bad", "tags": ["c2"], "by": "bob", "when": "2026-09-01"}
+
+
+def test_team_malicious_tag_raises_quiet_verdict():
+    v = V.strip_ansi(V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 0\n", team=_C2))
+    assert v.startswith("VERDICT: Likely malicious") and "team: c2 (bob 2026-09-01)" in v
+
+
+def test_team_benign_tag_wins_over_weak_signals():
+    v = V.strip_ansi(V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 2\n", team=_FP))
+    assert "Benign (team: fp (alice 2026-08-31))" in v
+    assert "VirusTotal 2 malicious" in v          # evidence still listed
+
+
+def test_team_benign_tag_vs_strong_signal_is_a_conflict():
+    v = V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 12\n", team=_FP)
+    plain = V.strip_ansi(v)
+    assert "CONFLICT" in plain and "team: fp (alice 2026-08-31)" in plain
+    assert "VirusTotal 12 malicious" in plain
+    assert "Benign" not in plain
+
+
+def test_no_team_signal_is_unchanged():
+    assert V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 9\n") == \
+        V.build_verdict("ip", "VirusTotal Detections:\n\tMalicious: 9\n", team=None)

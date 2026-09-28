@@ -169,3 +169,34 @@ def test_delete_notes_by_ids_owner_guard():
     assert be.delete_notes_by_ids([bob_id], "alice") == 0   # not alice's row
     assert be.list_notes("4.4.4.5", 10)[1] == 2
     assert be.delete_notes_by_ids([bob_id], "bob") == 1
+
+
+def test_url_key_keeps_path_case_and_reads_legacy_notes():
+    be = _backend()
+    m = C.CacheManager(be, username="alice")
+    assert m._norm("HTTP://Evil.COM/Payload.EXE", "url") == "http://evil.com/Payload.EXE"
+    # a note stored by an older version under the fully-lowercased key
+    be.add_note("http://evil.com/payload.exe", "url", "bob", "old note", "c2")
+    buf = io.StringIO(); real = sys.stdout; sys.stdout = buf
+    try:
+        m.print_team_notes("http://evil.com/Payload.exe", "url")
+    finally:
+        sys.stdout = real
+    assert "old note" in buf.getvalue()
+
+
+def test_team_tag_signal_newest_note_wins():
+    be = _backend()
+    alice = C.CacheManager(be, username="alice")
+    bob = C.CacheManager(be, username="bob")
+    assert alice.team_tag_signal("7.7.7.7", "ip") is None
+    alice.add_note("7.7.7.7", "ip", "beaconing #c2")
+    s = alice.team_tag_signal("7.7.7.7", "ip")
+    assert s["kind"] == "bad" and s["tags"] == ["c2"] and s["by"] == "alice"
+    time.sleep(0.01)
+    bob.add_note("7.7.7.7", "ip", "sinkholed, checked #fp")
+    s = alice.team_tag_signal("7.7.7.7", "ip")
+    assert s["kind"] == "good" and s["by"] == "bob"
+    time.sleep(0.01)
+    alice.add_note("7.7.7.7", "ip", "just a comment #investigating")   # neutral tag ignored
+    assert alice.team_tag_signal("7.7.7.7", "ip")["by"] == "bob"

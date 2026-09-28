@@ -4,8 +4,9 @@ import os
 import re
 import time
 import asyncio
-from attackcti import attack_client
-from IPython.display import display, Markdown
+# attackcti (+ stix2, taxii2client) and IPython are imported lazily: attackcti
+# only when the on-disk MITRE cache is stale, IPython only when rendering
+# Markdown in a notebook. Both used to cost ~1 s at every startup.
 
 # Custom Utility Imports
 from analyst_tool_utilities import color
@@ -17,7 +18,10 @@ class AsyncAnalystToolMitre:
         self.mitre_techniques = []
         self.tactics_filename = "enterprise_tactics.json"
         self.techniques_filename = "mitre_techniques.json"
-        self.lift = self._initialize_mitre()
+        # The TAXII client is built only when a refresh is actually needed
+        # (see _load_data); before, attack_client() ran at every startup even
+        # with a fresh 90-day cache on disk.
+        self.lift = None
         
         # Load data on init
         self.mitre_tactics = self._load_data(self.tactics_filename, "tactics")
@@ -26,8 +30,9 @@ class AsyncAnalystToolMitre:
     def _initialize_mitre(self):
         logging.getLogger('taxii2client').setLevel(logging.CRITICAL)
         try:
+            from attackcti import attack_client
             return attack_client()
-        except:
+        except Exception:
             return None
 
     def _load_data(self, filename, data_type):
@@ -39,10 +44,15 @@ class AsyncAnalystToolMitre:
                 return json.load(f)
         
         # Fallback to API if file is missing or old
+        if self.lift is None:
+            self.lift = self._initialize_mitre()
         if self.lift:
             try:
+                # stix2 objects are Mappings, not dicts: json.dump() can't
+                # write them directly. Tactics were dumped raw, so the refresh
+                # always failed and a fresh install had no tactics at all.
                 if data_type == "tactics":
-                    data = self.lift.get_enterprise_tactics()
+                    data = [json.loads(t.serialize()) for t in self.lift.get_enterprise_tactics()]
                 else:
                     data = [json.loads(t.serialize()) for t in self.lift.get_enterprise_techniques()]
                 
@@ -106,6 +116,7 @@ class AsyncAnalystToolMitre:
 
     def _output_format(self, content):
         if self.terminal == 0:
+            from IPython.display import display, Markdown   # notebook only
             display(Markdown(content))
         else:
             print(content)

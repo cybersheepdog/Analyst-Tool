@@ -145,97 +145,89 @@ def get_vt_ip_results(suspect_ip, virus_total_headers, vt_user):
     print("\thttps://www.virustotal.com/gui/ip-address/" + suspect_ip)
 
 
+def _detection_counts(vt_response):
+    """Engine counts for an IP / domain / URL analysis.
+
+    The headline numbers (Malicious, Suspicious, Clean, Undetected, Time Out)
+    come from VirusTotal's own `last_analysis_stats`, which buckets engines by
+    CATEGORY. The old code counted engines whose *result string* was literally
+    'malicious' — but engines flagging an IP or domain usually answer
+    'malware' or 'phishing' (category 'malicious'), so an address flagged by
+    eight engines could print "Malicious: 0" and get a clean verdict. The
+    Malware / Phishing / Spam lines still break the result strings down, as
+    before. Returns (counts dict, [(engine, result)] for flagged engines).
+    """
+    attrs = vt_response['data']['attributes']
+    results = attrs.get('last_analysis_results') or {}
+    by_result = {'malware': 0, 'phishing': 0, 'spam': 0}
+    flagged = []
+    by_category = {'malicious': 0, 'suspicious': 0, 'harmless': 0,
+                   'undetected': 0, 'timeout': 0}
+    for engine, r in results.items():
+        r = r or {}
+        res = (r.get('result') or '').lower()
+        cat = (r.get('category') or '').lower()
+        if res in by_result:
+            by_result[res] += 1
+        if cat in by_category:
+            by_category[cat] += 1
+        if cat in ('malicious', 'suspicious'):
+            flagged.append((r.get('engine_name') or engine, res or cat, cat))
+    stats = attrs.get('last_analysis_stats') or by_category
+    counts = {
+        'malicious':  int(stats.get('malicious', 0) or 0),
+        'suspicious': int(stats.get('suspicious', 0) or 0),
+        'clean':      int(stats.get('harmless', 0) or 0),
+        'undetected': int(stats.get('undetected', 0) or 0),
+        'timeout':    int(stats.get('timeout', 0) or 0),
+    }
+    counts.update(by_result)
+    # Malicious engines first, then suspicious; alphabetical within each.
+    flagged.sort(key=lambda f: (f[2] != 'malicious', f[0].lower()))
+    return counts, [(e, r) for e, r, _c in flagged]
+
+
+def _print_detections(vt_response, top_engines=5):
+    """Print the detection block shared by the IP, domain and URL reports.
+    Red >= 10, orange >= 5 (same thresholds and labels as before)."""
+    counts, flagged = _detection_counts(vt_response)
+
+    def _line(label, val, coloured=True):
+        if coloured and val >= 10:
+            print('\t{:<34} {}'.format(color.RED + label + color.END, val))
+        elif coloured and val >= 5:
+            print('\t{:<34} {}'.format(color.ORANGE + label + color.END, val))
+        else:
+            print('\t{:<25} {}'.format(label, val))
+
+    _line('Malicious:',  counts['malicious'])
+    _line('Malware:',    counts['malware'])
+    _line('Suspicious:', counts['suspicious'])
+    _line('Phishing:',   counts['phishing'])
+    _line('Spam:',       counts['spam'])
+    _line('Clean:',      counts['clean'],      coloured=False)
+    _line('Undetected:', counts['undetected'], coloured=False)
+    _line('Time Out:',   counts['timeout'],    coloured=False)
+    if flagged:
+        shown = ", ".join("%s: %s" % (e, r) for e, r in flagged[:top_engines])
+        more = len(flagged) - top_engines
+        print('\t{:<25} {}'.format('Flagged by:', shown + (" (+%d more)" % more if more > 0 else "")))
+
+
 def print_domain_detections(vt_domain_response):
     """Count and print VT domain analysis categories with color coding.
 
     Red  >= 10 detections, Orange >= 5 detections in a category.
     """
-    categories = [v for v in vt_domain_response['data']['attributes']['last_analysis_results'].values()]
-    alert_categories = {'malicious': 0, 'suspicious': 0, 'phishing': 0,
-                        'malware': 0, 'spam': 0, 'clean': 0, 'unrated': 0, 'time out': 0}
-    for alert in categories:
-        if alert['result'] in alert_categories:
-            alert_categories[alert['result']] += 1
-
-    def _print(label, key, width_red=34, width_orange=34):
-        val = alert_categories[key]
-        if val >= 10:
-            print('\t{:<{w}} {}'.format(color.RED + label + color.END, val, w=width_red))
-        elif val >= 5:
-            print('\t{:<{w}} {}'.format(color.ORANGE + label + color.END, val, w=width_orange))
-        else:
-            print('\t{:<25} {}'.format(label, val))
-
-    _print('Malicious:', 'malicious')
-    _print('Malware:',   'malware',   31, 34)
-    _print('Suspicious:','suspicious',31, 34)
-    _print('Phishing:',  'phishing',  31, 34)
-    _print('Spam:',      'spam',      31, 34)
-    print('\t{:<25} {}'.format('Clean:',      alert_categories['clean']))
-    print('\t{:<25} {}'.format('Undetected:', alert_categories['unrated']))
-    print('\t{:<25} {}'.format('Time Out:',   alert_categories['time out']))
+    _print_detections(vt_domain_response)
 
 
 def print_ip_detections(vt_ip_response):
-    """Count and print VT IP analysis categories with color coding.
+    """Count and print VT IP (and URL) analysis categories with color coding.
 
     Red  >= 10 detections, Orange >= 5 detections in a category.
     """
-    categories = [v for v in vt_ip_response['data']['attributes']['last_analysis_results'].values()]
-    alert_categories = {'malicious': 0, 'suspicious': 0, 'phishing': 0,
-                        'malware': 0, 'spam': 0, 'clean': 0, 'unrated': 0, 'time out': 0}
-    for alert in categories:
-        if alert['result'] in alert_categories:
-            alert_categories[alert['result']] += 1
-
-    # Malicious
-    val = alert_categories['malicious']
-    if val >= 10:
-        print('\t{:<34} {}'.format(color.RED + 'Malicious:' + color.END, val))
-    elif val >= 5:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Malicious:' + color.END, val))
-    else:
-        print('\t{:<25} {}'.format('Malicious:', val))
-
-    # Malware
-    val = alert_categories['malware']
-    if val >= 10:
-        print('\t{:<31} {}'.format(color.RED + 'Malware:' + color.END, val))
-    elif val >= 5:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Malware:' + color.END, val))
-    else:
-        print('\t{:<25} {}'.format('Malware:', val))
-
-    # Suspicious
-    val = alert_categories['suspicious']
-    if val >= 10:
-        print('\t{:<25} {}'.format(color.RED + 'Suspicious:' + color.END, val))
-    elif val >= 5:
-        print('\t{:<25} {}'.format(color.ORANGE + 'Suspicious:' + color.END, val))
-    else:
-        print('\t{:<25} {}'.format('Suspicious:', val))
-
-    # Phishing
-    val = alert_categories['phishing']
-    if val >= 10:
-        print('\t{:<25} {}'.format(color.RED + 'Phishing:' + color.END, val))
-    elif val >= 5:
-        print('\t{:<25} {}'.format(color.ORANGE + 'Phishing:' + color.END, val))
-    else:
-        print('\t{:<25} {}'.format('Phishing:', val))
-
-    # Spam
-    val = alert_categories['spam']
-    if val >= 10:
-        print('\t{:<31} {}'.format(color.RED + 'Spam:' + color.END, val))
-    elif val >= 5:
-        print('\t{:<34} {}'.format(color.ORANGE + 'Spam:' + color.END, val))
-    else:
-        print('\t{:<25} {}'.format('Spam:', val))
-
-    print('\t{:<25} {}'.format('Clean:',      alert_categories['clean']))
-    print('\t{:<25} {}'.format('Undetected:', alert_categories['unrated']))
-    print('\t{:<25} {}'.format('Time Out:',   alert_categories['time out']))
+    _print_detections(vt_ip_response)
 
 
 def print_virus_total_hash_results(suspect_hash, virus_total_headers, vt_user):

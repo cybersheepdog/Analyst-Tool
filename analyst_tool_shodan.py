@@ -63,7 +63,12 @@ def get_print_shodan_ip_results(shodan_headers, suspect_ip):
         # cacheable answer. Anything else (bad key, rate limit, outage) is a
         # failure that must not be cached.
         msg = str(exc)
-        if 'no information available' in msg.lower():
+        low = msg.lower()
+        if 'invalid api key' in low or 'access denied' in low or '403' in low:
+            raise ServiceError("Shodan", 401 if 'key' in low else 403, msg[:160])
+        if 'rate limit' in low or 'too many requests' in low:
+            raise ServiceError("Shodan", 429, msg[:160])
+        if 'no information available' in low:
             print(color.UNDERLINE + '\nShodan IP Results for:' + color.END + f" {suspect_ip}")
             print('\tNot found in Shodan')
             print(f"\n\thttps://www.shodan.io/host/{suspect_ip}")

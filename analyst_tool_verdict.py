@@ -87,7 +87,7 @@ def _opencti_score(text):
 _REPUTATION_SERVICES = ('VirusTotal', 'AbuseIPDB', 'AlienVault OTX', 'OpenCTI', 'C2Live')
 
 
-def build_verdict(indicator_type, raw_text, unavailable=None):
+def build_verdict(indicator_type, raw_text, unavailable=None, team=None):
     """Return a one-line, colour-coded verdict string for a report.
 
     Severity: 2 = likely malicious (red), 1 = suspicious (orange),
@@ -97,6 +97,13 @@ def build_verdict(indicator_type, raw_text, unavailable=None):
     "Service (reason)" strings; they are appended to the line, and a
     severity-0 verdict is marked "(incomplete)" when a reputation source is
     among them, so silence is never read as "clean".
+
+    `team` is CacheManager.team_tag_signal() — the newest note's benign or
+    malicious tag. A malicious tag raises the verdict to at least "Likely
+    malicious". A benign tag gives "Benign (team …)" — unless a service is
+    still strongly red, in which case the line reads "CONFLICT" in orange
+    and shows both sides: a domain marked FP last year may be compromised
+    today, so the team call never hides live evidence.
     """
     text = strip_ansi(raw_text)
     unavailable = list(unavailable or [])
@@ -160,7 +167,20 @@ def build_verdict(indicator_type, raw_text, unavailable=None):
         reasons.append("OpenCTI %d/100" % octi)
         bump(2 if octi >= 75 else 1)
 
-    if severity == 2:
+    team_note = None
+    if team:
+        team_note = "team: %s (%s %s)" % (", ".join(team.get("tags") or []),
+                                          team.get("by", "unknown"), team.get("when", ""))
+
+    if team and team.get("kind") == "good" and severity == 2:
+        label, c = "CONFLICT — team marked benign, services say malicious", color.ORANGE
+        reasons = [team_note] + reasons
+    elif team and team.get("kind") == "good":
+        label, c = "Benign (%s)" % team_note, color.GREEN
+    elif team and team.get("kind") == "bad":
+        label, c = "Likely malicious", color.RED
+        reasons = [team_note] + reasons
+    elif severity == 2:
         label, c = "Likely malicious", color.RED
     elif severity == 1:
         label, c = "Suspicious", color.ORANGE

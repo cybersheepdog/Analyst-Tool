@@ -257,6 +257,9 @@ def _overlay_remote(parser, remote, fernet=None):
         parser.set(section, option, str(plain))
 
 
+_remote_unavailable_until = 0.0   # epoch until which remote fetches are skipped
+
+
 def load_config(path="config.ini", force_reload=False):
     """Return a ConfigParser with shared API keys overlaid on the local config.
 
@@ -272,6 +275,12 @@ def load_config(path="config.ini", force_reload=False):
     if not force_reload and path in _merged_cache:
         return _merged_cache[path]
 
+    # Every create_*_from_config() at startup calls load_config(); when the
+    # remote database is unreachable each one used to spend its own 5 s
+    # connect timeout (~40 s to start). Remember the failure for a minute.
+    global _remote_unavailable_until
+    remote_skip = (not force_reload and time.time() < _remote_unavailable_until)
+
     parser = ConfigParser()
     try:
         parser.read(path)
@@ -280,9 +289,14 @@ def load_config(path="config.ini", force_reload=False):
 
     try:
         cfg = get_cache_config_from_config(path)
-        if _remote_enabled(cfg):
+        if _remote_enabled(cfg) and not remote_skip:
             remote = _fetch_remote_shared_config(cfg)
-            if remote:
+            if remote is None:
+                _remote_unavailable_until = time.time() + 60.0
+                print("Shared config: database unreachable — using local keys "
+                      "(will retry in a minute).")
+            elif remote:
+                _remote_unavailable_until = 0.0
                 fernet = _build_fernet_for_read(remote, path)
                 _overlay_remote(parser, remote, fernet)
                 # Only cache when we actually talked to the remote — this is the
@@ -298,7 +312,9 @@ def load_config(path="config.ini", force_reload=False):
 
 def clear_cache():
     """Forget any cached merged config (used by tests and the admin CLI)."""
+    global _remote_unavailable_until
     _merged_cache.clear()
+    _remote_unavailable_until = 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -420,6 +436,13 @@ def _mask(value):
 
 
 def _main(argv):
+    # Same folder rule as the main tool (config.ini in this folder, else the
+    # tool's folder / ANALYST_TOOL_HOME).
+    try:
+        from analyst_tool_utilities import ensure_tool_home
+        ensure_tool_home()
+    except Exception:
+        pass
     import getpass
 
     if not argv or argv[0] in ("-h", "--help", "help"):

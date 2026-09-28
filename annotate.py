@@ -35,7 +35,16 @@ def _host(value):
 
 
 def _guess_type(token):
-    """Light indicator classifier (avoids importing the heavy main module)."""
+    """Indicator type for a note target — the same classifier the tool uses
+    (analyst_tool_classify), with the old lightweight guesses as a fallback
+    so unknown values still default to 'domain' as before."""
+    try:
+        from analyst_tool_classify import note_target_type
+        kind = note_target_type(token)
+        if kind:
+            return kind
+    except Exception:
+        pass
     t = (token or "").strip()
     if re.match(r'^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$', t):
         return 'hash'
@@ -102,6 +111,11 @@ def main():
     e_rm.add_argument("domain")
 
     args = parser.parse_args()
+
+    # Same folder rule as the main tool: stay put if this folder has a
+    # config.ini, otherwise use the tool's folder (or ANALYST_TOOL_HOME).
+    from analyst_tool_utilities import ensure_tool_home
+    ensure_tool_home()
 
     cache = build_cache_manager()
     if not cache.enabled:

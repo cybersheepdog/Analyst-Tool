@@ -14,7 +14,32 @@ VirusTotal, AbuseIPDB, OTX and Shodan with `not_found_hours`; **A3** OTX/Shodan/
 whois/PTR timeouts, one shared pool, `lookup_deadline_seconds`; **A4** IPv6 via
 `ipaddress` through the full IP report; plus from A15 the "re-run every task on
 verdict failure" fallback, the `_hostname_of` IPv6/`[abc` cases, and the
-`vt_api_count` abort. Everything else below is still open.
+`vt_api_count` abort.
+
+Implemented 2026-09-26: **A5/A6 + D1** one classifier (`analyst_tool_classify`)
+with TLD gate, host:port / host/path / trailing-dot / CIDR normalisation,
+case-insensitive LOLBAS/LOLDrivers, CVEs annotatable (**A9**); **A7 + D4**
+`analyst_tool_log` rotating log + console `[error]` line, global
+`logging.disable` removed; **A10** MITRE tactics serialisation; **A11** OpenCTI
+exact match, headers passed, `opencti_base_url`, null scores, max TLP,
+cached with `opencti_freshness_hours`, client-failure cool-down; **A14**
+Postgres dead-connection recovery + `connect_timeout`; **B2** lazy MITRE
+client / lazy attackcti + IPython imports; **B3** failed remote-config fetch
+remembered for a minute; **B4** Tor/VPN/datacenter feeds prefetched on a
+background thread; plus a per-service circuit breaker (`quota_backoff_minutes`).
+C2Live (A8) is deprioritised by request. Also fixed: startup no longer
+crashes when LOLBAS/LOLDrivers can't be downloaded and no cached copy exists
+(empty catalogue + background retry every 10 min).
+
+Implemented 2026-09-26 (second batch): **A13** VirusTotal counts from
+`last_analysis_stats` + `Flagged by:`; **A15** URL key case (legacy notes still
+read), OTX URL link, crt.sh suffix, refang `hxxp`/`dot` rules, unique exclusions;
+**C2** team tags in the verdict (CONFLICT when a benign tag meets a strong
+service result); **C1** multi-indicator paste → triage table, `>>full N`,
+`>>batch next`; **B8** clipboard watcher queue + Windows change counter; **C3**
+`[DNS] active_resolution` (passive by default, OTX passive DNS); **D5**
+`ensure_tool_home()`; **D7** core / optional requirements with `~=` pins.
+Everything else below is still open.
 
 ## Top 10 by value ÷ effort
 

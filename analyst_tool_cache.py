@@ -63,6 +63,8 @@ def get_cache_config_from_config(path="config.ini"):
         "note_dedup_seconds": 60.0,
         # A "not found" answer is cached for this long instead of freshness_days
         "not_found_hours": 24.0,
+        # OpenCTI is your own intel and changes often: its own, shorter window
+        "opencti_freshness_hours": 6.0,
         # remote (PostgreSQL)
         "host": "",
         "port": 5432,
@@ -121,6 +123,7 @@ def get_cache_config_from_config(path="config.ini"):
     cfg["exclusion_refresh_minutes"] = _float("exclusion_refresh_minutes", 5.0)
     cfg["note_dedup_seconds"] = _float("note_dedup_seconds", 60.0)
     cfg["not_found_hours"] = _float("not_found_hours", 24.0)
+    cfg["opencti_freshness_hours"] = _float("opencti_freshness_hours", 6.0)
     cfg["host"] = _get("host", "")
     cfg["port"] = _int("port", 5432)
     cfg["dbname"] = _get("dbname", "")
@@ -229,6 +232,18 @@ class SQLiteBackend:
                 "CREATE INDEX IF NOT EXISTS idx_excl_dom "
                 "ON exclusions(domain)")
             conn.commit()
+            try:
+                # Collapse duplicate exclusions (keep the oldest), then
+                # enforce uniqueness so a concurrent >>exclude can't add one.
+                conn.execute(
+                    "DELETE FROM exclusions WHERE rowid NOT IN ("
+                    " SELECT MIN(rowid) FROM exclusions GROUP BY domain)")
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_excl_domain "
+                    "ON exclusions(domain)")
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
     def get_fresh_row(self, indicator, service, fresh_secs):
         cur = self._conn().execute(
@@ -453,11 +468,13 @@ class SQLiteBackend:
             cur = conn.execute("SELECT 1 FROM exclusions WHERE domain=?", (domain,))
             if cur.fetchone() is not None:
                 return False
-            conn.execute(
-                "INSERT INTO exclusions (domain, added_by, created_at) "
+            # OR IGNORE + the unique index make a concurrent add a no-op
+            # instead of a second row.
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO exclusions (domain, added_by, created_at) "
                 "VALUES (?,?,?)", (domain, username, time.time()))
             conn.commit()
-            return True
+            return cur.rowcount > 0
 
     def list_exclusions(self):
         cur = self._conn().execute(
@@ -488,22 +505,52 @@ class PostgresBackend:
         self._pool = ThreadedConnectionPool(
             1, 8,
             host=cfg["host"], port=cfg["port"], dbname=cfg["dbname"],
-            user=cfg["db_user"], password=cfg["password"], sslmode=cfg["sslmode"])
+            user=cfg["db_user"], password=cfg["password"], sslmode=cfg["sslmode"],
+            connect_timeout=5)
+        self._lost_notice_shown = False
         self._ensure_schema()
 
     @contextmanager
     def _cursor(self):
+        """A cursor from the pool, committed on success.
+
+        A connection the server has dropped (restart, idle timeout, VPN blip)
+        is closed instead of being returned to the pool: before, the dead
+        connection went back, every later call failed the same way, and the
+        cache silently went live for the rest of the session. The pool opens
+        a fresh connection on the next use.
+        """
         conn = self._pool.getconn()
+        broken = False
         try:
             cur = conn.cursor()
             yield cur
             conn.commit()
             cur.close()
+            if self._lost_notice_shown:
+                self._lost_notice_shown = False
+                print("Cache: database connection restored.")
+        except (self._psycopg2.OperationalError, self._psycopg2.InterfaceError):
+            broken = True
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if not self._lost_notice_shown:
+                self._lost_notice_shown = True
+                print("Cache: database connection lost — will reconnect on the next lookup.")
+            raise
         except Exception:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                broken = True
             raise
         finally:
-            self._pool.putconn(conn)
+            try:
+                self._pool.putconn(conn, close=broken)
+            except Exception:
+                pass
 
     def _ensure_schema(self):
         with self._cursor() as cur:
@@ -523,6 +570,21 @@ class PostgresBackend:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_excl_dom "
                 "ON exclusions(domain)")
+        # Separate transaction: collapse any duplicate exclusions (keeping the
+        # oldest), then enforce uniqueness. Best effort — a role without DDL
+        # rights, or a racing client, must not stop the cache from working.
+        try:
+            with self._cursor() as cur:
+                cur.execute(
+                    "DELETE FROM exclusions WHERE ctid IN ("
+                    " SELECT ctid FROM (SELECT ctid, row_number() OVER ("
+                    "  PARTITION BY domain ORDER BY created_at NULLS LAST) AS rn"
+                    "  FROM exclusions) t WHERE t.rn > 1)")
+                cur.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_excl_domain "
+                    "ON exclusions(domain)")
+        except Exception:
+            pass
 
     def get_fresh_row(self, indicator, service, fresh_secs):
         with self._cursor() as cur:
@@ -739,10 +801,15 @@ class PostgresBackend:
             cur.execute("SELECT 1 FROM exclusions WHERE domain=%s", (domain,))
             if cur.fetchone() is not None:
                 return False
+            # Two analysts running >>exclude at the same moment both pass the
+            # SELECT; ON CONFLICT DO NOTHING (with the unique index added in
+            # _ensure_schema) turns the second insert into a no-op. Without a
+            # target it is also harmless if the index could not be created.
             cur.execute(
                 "INSERT INTO exclusions (domain, added_by, created_at) "
-                "VALUES (%s,%s,%s)", (domain, username, time.time()))
-            return True
+                "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                (domain, username, time.time()))
+            return cur.rowcount > 0
 
     def list_exclusions(self):
         with self._cursor() as cur:
@@ -828,7 +895,7 @@ class CacheManager:
                  purge_days=0.0, username="unknown", check_window_days=7.0,
                  check_dedup_minutes=60.0, command_prefix=">>", max_notes_shown=5,
                  exclusion_refresh_minutes=5.0, note_dedup_seconds=60.0,
-                 not_found_hours=24.0):
+                 not_found_hours=24.0, opencti_freshness_hours=6.0):
         self.backend = backend
         self.enabled = backend is not None
         self.freshness_seconds = max(0.0, float(freshness_days)) * 86400.0
@@ -854,6 +921,13 @@ class CacheManager:
             self.not_found_seconds = max(0.0, float(not_found_hours)) * 3600.0
         except Exception:
             self.not_found_seconds = 86400.0
+        # Per-service freshness overrides (seconds); everything else uses
+        # freshness_seconds. OpenCTI is the team's own, fast-moving intel.
+        self.service_freshness = {}
+        try:
+            self.service_freshness['opencti'] = max(0.0, float(opencti_freshness_hours)) * 3600.0
+        except Exception:
+            self.service_freshness['opencti'] = 6 * 3600.0
         self._exclusions_cache = None
         self._exclusions_loaded_at = 0.0
         self._print_lock = threading.Lock()
@@ -863,9 +937,40 @@ class CacheManager:
     @staticmethod
     def _norm(indicator, itype):
         value = (indicator or "").strip()
-        if itype in ("hash", "domain", "url"):
+        if itype == "url":
+            return CacheManager._norm_url(value)
+        if itype in ("hash", "domain"):
             return value.lower()
         return value
+
+    @staticmethod
+    def _norm_url(value):
+        """Lowercase a URL's scheme and host only. Paths and queries are
+        case-sensitive on most servers (and to VirusTotal), so /Payload.exe
+        and /payload.exe are different indicators; the old key lowercased the
+        whole URL and made them share one cache row and one set of notes."""
+        try:
+            from urllib.parse import urlsplit, urlunsplit
+            parts = urlsplit(value)
+            if not parts.scheme or not parts.netloc:
+                return value
+            return urlunsplit((parts.scheme.lower(), parts.netloc.lower(),
+                               parts.path, parts.query, parts.fragment))
+        except ValueError:
+            return value
+
+    @classmethod
+    def _note_keys(cls, indicator, itype):
+        """Keys notes may be stored under: the current key plus, for URLs, the
+        fully-lowercased key older versions used — so existing notes keep
+        showing (and can still be removed) after the key change."""
+        key = cls._norm(indicator, itype)
+        keys = [key]
+        if itype == "url":
+            legacy = (indicator or "").strip().lower()
+            if legacy and legacy != key:
+                keys.append(legacy)
+        return keys
 
     @staticmethod
     def _strip_quota(text):
@@ -928,6 +1033,15 @@ class CacheManager:
             return True, payload[len(cls.NOT_FOUND_MARK):]
         return False, payload
 
+    # Console labels per cache service name — the breaker keys on these, and
+    # they match the ServiceError.service each module raises.
+    _SERVICE_LABELS = {'virustotal': 'VirusTotal', 'abuseipdb': 'AbuseIPDB',
+                       'shodan': 'Shodan', 'otx': 'AlienVault OTX',
+                       'opencti': 'OpenCTI', 'otx_pdns': 'AlienVault OTX'}
+
+    def freshness_for(self, service):
+        return self.service_freshness.get(service, self.freshness_seconds)
+
     def cached_call(self, indicator, indicator_type, service, live_fn,
                     force_refresh=False):
         """Serve `service` for `indicator` from cache when fresh, else live.
@@ -946,29 +1060,43 @@ class CacheManager:
                                          if one exists, otherwise the error
                                          propagates to the caller.
         """
-        from analyst_tool_utilities import IndicatorNotFound
+        from analyst_tool_utilities import IndicatorNotFound, ServiceError
+        from analyst_tool_breaker import BREAKER
+        label = self._SERVICE_LABELS.get(service, service)
+
+        def _live():
+            """Run live_fn behind the circuit breaker: skip a service that is
+            over quota / mis-keyed (unless '!' forced), and trip the breaker
+            on such an answer."""
+            BREAKER.guard(label, force=force_refresh)
+            try:
+                live_fn()
+            except ServiceError as exc:
+                BREAKER.observe(exc)
+                raise
 
         if not self.enabled:
             try:
-                live_fn()
+                _live()
             except IndicatorNotFound:
                 pass            # the "not found" line was already printed
             return
 
         key = self._norm(indicator, indicator_type)
+        fresh_secs = self.freshness_for(service)
 
         # 1) Fresh cache hit (unless the user forced a refresh)
         if not force_refresh:
             try:
-                row = self.backend.get_fresh_row(
-                    key, service, self.freshness_seconds)
+                row = self.backend.get_fresh_row(key, service, fresh_secs)
             except Exception:
                 row = None
             if row is not None:
                 not_found, payload = self._split_not_found(row.get("payload"))
                 age = time.time() - (row["updated_at"] or time.time())
-                # A "not found" answer expires on its own, shorter clock.
-                if not (not_found and age > self.not_found_seconds):
+                # A "not found" answer expires on its own, shorter clock
+                # (never longer than the service's own freshness).
+                if not (not_found and age > min(self.not_found_seconds, fresh_secs)):
                     try:
                         self.backend.record_hit(key, service)
                     except Exception:
@@ -985,7 +1113,7 @@ class CacheManager:
         try:
             with _capture() as buf:
                 try:
-                    live_fn()
+                    _live()
                 except IndicatorNotFound:
                     not_found = True
             text = buf.getvalue()
@@ -1019,7 +1147,8 @@ class CacheManager:
 
     # -- multi-user check logging -------------------------------------------
 
-    _TYPE_LABELS = {"ip": "IP", "hash": "hash", "domain": "domain", "url": "URL"}
+    _TYPE_LABELS = {"ip": "IP", "hash": "hash", "domain": "domain", "url": "URL",
+                    "cve": "CVE"}
 
     def record_check_and_alert(self, indicator, indicator_type):
         """Log that the current user looked up `indicator`, and if more than one
@@ -1123,11 +1252,16 @@ class CacheManager:
         """Print the TEAM NOTES block for an indicator, if it has any."""
         if not self.enabled:
             return
-        key = self._norm(indicator, indicator_type)
-        try:
-            notes, total = self.backend.list_notes(key, self.max_notes_shown)
-        except Exception:
-            return
+        notes, total = [], 0
+        for key in self._note_keys(indicator, indicator_type):
+            try:
+                n, t = self.backend.list_notes(key, self.max_notes_shown)
+            except Exception:
+                return
+            notes += n
+            total += t
+        notes.sort(key=lambda n: n.get("created_at") or 0, reverse=True)
+        notes = notes[:self.max_notes_shown]
         if not notes:
             return
         self._emit(self._BOLD + self._CYAN + "*** TEAM NOTES (%d) ***" % total + self._END)
@@ -1143,6 +1277,38 @@ class CacheManager:
             self._emit(meta)
         if total > len(notes):
             self._emit("\t(+%d more)" % (total - len(notes)))
+
+    def team_tag_signal(self, indicator, indicator_type):
+        """The team's latest judgement on an indicator, from its note tags.
+
+        Returns None, or {'kind': 'bad'|'good', 'tags': [...], 'by': user,
+        'when': 'YYYY-MM-DD'} taken from the NEWEST note carrying a tag from
+        _BAD_TAGS or _GOOD_TAGS (the same red / green lists used for the tag
+        pills). A note carrying both kinds counts as bad. Used by the verdict:
+        a team call outranks a quiet or suspicious service result.
+        """
+        if not self.enabled:
+            return None
+        notes = []
+        for key in self._note_keys(indicator, indicator_type):
+            try:
+                n, _t = self.backend.list_notes(key, 50)
+            except Exception:
+                return None
+            notes += n
+        notes.sort(key=lambda n: n.get("created_at") or 0, reverse=True)
+        for n in notes:
+            tags = [t.lower() for t in (n.get("tags") or "").split()]
+            bad = [t for t in tags if t in self._BAD_TAGS]
+            good = [t for t in tags if t in self._GOOD_TAGS]
+            if bad or good:
+                when = time.strftime('%Y-%m-%d',
+                                     time.localtime(n.get("created_at") or time.time()))
+                return {"kind": "bad" if bad else "good",
+                        "tags": bad or good,
+                        "by": n.get("username") or "unknown",
+                        "when": when}
+        return None
 
     def _is_recent_duplicate(self, key, note, tags):
         """True if this exact note by this user was stored inside the dedup
@@ -1228,9 +1394,10 @@ class CacheManager:
         """Delete the current user's notes for an indicator."""
         if not self.enabled:
             return
-        key = self._norm(indicator, indicator_type)
+        removed = 0
         try:
-            removed = self.backend.delete_notes(key, self.username)
+            for key in self._note_keys(indicator, indicator_type):
+                removed += self.backend.delete_notes(key, self.username)
         except Exception as exc:
             print("\t[note] Could not remove: %s" % exc)
             return
@@ -1477,5 +1644,6 @@ def build_cache_manager(path="config.ini"):
         max_notes_shown=cfg["max_notes_shown"],
         exclusion_refresh_minutes=cfg["exclusion_refresh_minutes"],
         note_dedup_seconds=cfg["note_dedup_seconds"],
-        not_found_hours=cfg["not_found_hours"])
+        not_found_hours=cfg["not_found_hours"],
+        opencti_freshness_hours=cfg["opencti_freshness_hours"])
     return manager

@@ -1,6 +1,12 @@
 # Analyst Tool — DNS resolution + Certificate Transparency (crt.sh)
 #
-# For a domain this adds quick pivot data:
+# [DNS] active_resolution (default false) decides how resolution is done:
+#   * false (passive, default): NO query leaves the workstation for the
+#     domain. Passive DNS history comes from AlienVault OTX (one cached call);
+#     crt.sh is always used (it never touches the target).
+#   * true (active): the live lookups below, as before.
+#
+# In active mode, for a domain this adds quick pivot data:
 #   - Resolved A / AAAA addresses (and a reverse PTR for each).
 #   - MX / NS records, if the optional `dnspython` package is installed.
 #   - Subdomains observed in Certificate Transparency logs via crt.sh.
@@ -11,7 +17,8 @@
 
 import socket
 
-from analyst_tool_utilities import color, session_get, resolve_ptr
+from analyst_tool_utilities import (color, session_get, resolve_ptr,
+                                    dns_active_resolution, IndicatorNotFound)
 
 import requests
 
@@ -77,7 +84,8 @@ def get_crt_subdomains(domain, limit=15):
         value = entry.get("name_value", "")
         for name in value.splitlines():
             name = name.strip().lstrip("*.").lower()
-            if name.endswith(domain) and name != domain:
+            # '.' + domain: notevil.com is not a subdomain of evil.com
+            if name.endswith('.' + domain) and name != domain:
                 names.add(name)
     ordered = sorted(names)
     return ordered[:limit], len(ordered)
@@ -87,9 +95,55 @@ def get_crt_subdomains(domain, limit=15):
 # Display
 # ─────────────────────────────────────────────────────────────────────────────
 
-def print_dns_and_crt(domain):
-    """Print DNS resolution, MX/NS (if available), and crt.sh subdomains."""
+def _print_passive_dns(domain, otx, limit=5):
+    """Print OTX passive DNS for a domain: most recent records first.
+    Raises IndicatorNotFound (cacheable) when OTX has none."""
+    from OTXv2 import IndicatorTypes
+    from analyst_tool_otx import _otx_section
+    data = _otx_section(otx, IndicatorTypes.DOMAIN, domain, 'passive_dns') or {}
+    records = data.get('passive_dns') or []
+    if not records:
+        print('\t{:<25} {}'.format('Passive DNS (OTX):', 'none recorded'))
+        raise IndicatorNotFound("AlienVault OTX")
+    records = sorted(records, key=lambda r: str(r.get('last') or ''), reverse=True)
+    print('\t{:<25} {}'.format('Passive DNS (OTX):', '%d records%s' % (
+        len(records), '' if len(records) <= limit else ', newest %d' % limit)))
+    for r in records[:limit]:
+        addr = r.get('address') or '?'
+        rtype = r.get('record_type') or ''
+        host = r.get('hostname') or domain
+        label = addr + ('  (' + rtype + ')' if rtype else '')
+        if host.lower() != domain.lower():
+            label += '  via ' + host.replace('.', '[.]')
+        print('\t{:<25} {}'.format('', label))
+        print('\t{:<25} first {}  last {}'.format(
+            '', str(r.get('first') or '?')[:10], str(r.get('last') or '?')[:10]))
+
+
+def print_dns_and_crt(domain, otx=None, cache=None, force_refresh=False):
+    """Print DNS for a domain — passive (OTX) or live, per [DNS]
+    active_resolution — and crt.sh subdomains."""
     print(color.UNDERLINE + '\nDNS & Certificate Transparency:' + color.END)
+
+    if not dns_active_resolution():
+        print('\t{:<25} {}'.format('Live resolution:',
+                                   'off (passive mode — [DNS] active_resolution)'))
+        if otx is None:
+            print('\t{:<25} {}'.format('Passive DNS (OTX):', 'OTX not configured'))
+        else:
+            def _live():
+                _print_passive_dns(domain, otx)
+            try:
+                if cache is not None:
+                    cache.cached_call(domain, 'domain', 'otx_pdns', _live, force_refresh)
+                else:
+                    _live()
+            except IndicatorNotFound:
+                pass
+            except Exception as exc:
+                print('\t[AlienVault OTX] passive DNS unavailable: %s' % exc)
+        _print_crt(domain)
+        return
 
     addrs = resolve_addresses(domain)
     if addrs:
@@ -116,6 +170,11 @@ def print_dns_and_crt(domain):
                 print('\t{:<25} {}'.format('', r))
     # If dnspython is missing we simply omit MX/NS rather than erroring.
 
+    _print_crt(domain)
+
+
+def _print_crt(domain):
+    """crt.sh subdomains (passive in both modes)."""
     subs, total = get_crt_subdomains(domain)
     if total:
         print('\t{:<25} {}'.format('Subdomains (crt.sh):',

@@ -148,3 +148,6 @@ iana_ports.csv
 tor_exit_nodes.txt
 lolbas.json
 drivers.json
+
+# Diagnostics log (holds looked-up indicators)
+analyst_tool.log*

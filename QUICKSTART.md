@@ -12,6 +12,8 @@ For the full reference, see `USER_GUIDE.md`.
 
 ```bash
 pip install -r requirements.txt
+# optional: OpenCTI, MITRE refresh, notebook, shared DB, encrypted keys, MX/NS
+pip install -r requirements-optional.txt
 ```
 
 **Linux only:** also install a clipboard backend and run inside a graphical session, e.g.
@@ -60,7 +62,8 @@ report appears automatically. Copy the next one for the next report.
 | **Public IP (IPv4 or IPv6)** | VirusTotal, Shodan (+ Cobalt Strike beacon), WhoIs, Tor check, VPN + datacenter checks, AbuseIPDB, OTX, OpenCTI, C2Live — all at once |
 | **Private IP** | A note that it's an RFC1918 / link-local address |
 | **File hash** (MD5/SHA1/SHA256) | VirusTotal + OpenCTI + OTX hash reports |
-| **Domain** | VirusTotal + OpenCTI + OTX reports, plus DNS resolution + crt.sh subdomains |
+| **Domain** | VirusTotal + OpenCTI + OTX reports, plus passive DNS (OTX) + crt.sh subdomains |
+| **A block of text** (alert, list) with 2+ indicators | One verdict line per indicator; `>>full N` for a full report |
 | **CVE** (`CVE-2021-44228`) | NVD details (CVSS/severity/description) + CISA KEV status |
 | **URL** | VirusTotal + OpenCTI + OTX URL reports (defanged display) |
 | **MITRE ID** (`TA0001`, `T1059`, `T1059.001`) | Name, ATT&CK link, description, detection guidance |

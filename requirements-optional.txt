@@ -1,0 +1,25 @@
+# Optional dependencies — install only what you use:
+#   pip install -r requirements-optional.txt        (everything below)
+# Each package is imported lazily, only when its feature is used; without it
+# the tool runs and that feature reports itself unavailable.
+
+# OpenCTI lookups. Install the pycti version matching your OpenCTI platform
+# version (pycti releases track the platform, e.g. pycti==6.x.y for 6.x).
+pycti
+
+# MITRE ATT&CK refresh (the bundled JSON files work without it; needed only
+# when they are older than 90 days and must be re-downloaded).
+attackcti~=0.6.4
+
+# Markdown rendering when run inside a Jupyter notebook (Analyst Tool.ipynb).
+ipython>=8
+
+# Shared PostgreSQL cache / notes backend ([CACHE] backend = remote).
+psycopg2-binary~=2.9
+
+# Encrypted shared API keys (a passphrase is set). Lower bound only, so
+# security fixes always install.
+cryptography>=42
+
+# MX / NS records in the DNS section ([DNS] active_resolution = true).
+dnspython~=2.8

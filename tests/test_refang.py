@@ -23,3 +23,27 @@ def test_refang_passthrough():
     assert u.refang("https://good.com/path") == "https://good.com/path"
     assert u.refang("") == ""
     assert u.refang(None) is None
+
+
+# ── 2026-09-26: scheme-only hxxp; spelled-out dots need a real TLD ──────────
+
+def test_refang_hxxp_only_as_scheme():
+    assert u.refang("HXXPS://evil[.]com") == "https://evil.com"
+    assert u.refang("hxxp[:]//evil[.]com") == "http://evil.com"
+    assert u.refang("https://x.com/shxxpell") == "https://x.com/shxxpell"
+
+
+def test_refang_spelled_dots_need_a_tld(monkeypatch):
+    import importlib, sys
+    import analyst_tool_classify as C
+    stub = sys.modules.pop("validators", None)
+    try:
+        real = importlib.import_module("validators")
+    finally:
+        if stub is not None:
+            sys.modules["validators"] = stub
+    monkeypatch.setattr(C, "validators", real)
+    monkeypatch.setattr(C, "_HAS_CONSIDER_TLD", None)
+    assert u.refang("evil dot com") == "evil.com"
+    assert u.refang("mail dot evil dot co dot uk") == "mail.evil.co.uk"
+    assert u.refang("contact alice dot smith today") == "contact alice dot smith today"

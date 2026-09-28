@@ -39,10 +39,17 @@ The core is the `analyst()` function. When you start it, it:
 1. Reads `config.ini` and initializes every service for which you've provided credentials.
    Services without credentials are skipped gracefully (you'll see a "not configured" note).
 2. Loads reference data (MITRE ATT&CK, LOLBAS, LOLDrivers, Tor exit nodes), using local
-   cached copies when they're fresh and only re-downloading when stale.
-3. Enters a loop that watches your clipboard. The polling interval is adaptive: about
-   **1 second** while idle and **3 seconds** right after a lookup fires.
-4. Each time the clipboard contents **change**, it runs the new value through a series of
+   cached copies when they're fresh and only re-downloading when stale. If a catalogue
+   can't be downloaded and there's no cached copy (first run offline, or before the VPN
+   is up), the tool still starts: it prints `LolBas unavailable (no network) — lookups
+   off, retrying every 10 min`, retries in the background, and prints
+   `LolBas loaded (N entries)` once it succeeds.
+3. Watches your clipboard on a background thread and **queues every copy**, so copies
+   you make while a report is still running are handled next, in order (a
+   `(2 more copied — queued)` line tells you). On Windows it uses the clipboard's change
+   counter: copying the **same value again re-runs it**, and the clipboard is only opened
+   when something was actually copied. Elsewhere it compares text, as before.
+4. For each copy, it runs the value through a series of
    checks to classify the indicator, then dispatches the matching lookups. For indicators
    that hit multiple services (hashes, domains, URLs, IPs), all API calls run
    **concurrently**, so the total wait is the slowest single service rather than the sum.
@@ -61,8 +68,19 @@ You need **Python 3** and the project dependencies.
 pip install -r requirements.txt
 ```
 
-The dependencies are: `aiohttp`, `attackcti`, `configparser`, `elasticsearch`, `ipwhois`,
-`IPython`, `OTXv2`, `pandas`, `pycti`, `pyperclip`, `requests`, `shodan`, and `validators`.
+Core dependencies (`requirements.txt`): `requests`, `validators`, `pyperclip`, `ipwhois`,
+`OTXv2`, `shodan`, and `elasticsearch` (C2Live). Optional ones
+(`requirements-optional.txt`) are imported only when their feature is used:
+`pycti` (OpenCTI — install the version matching your OpenCTI platform), `attackcti`
+(MITRE refresh), `ipython` (notebook display), `psycopg2-binary` (shared PostgreSQL
+cache), `cryptography` (encrypted shared keys), and `dnspython` (MX/NS records).
+
+```bash
+pip install -r requirements-optional.txt   # or pick the ones you need
+```
+
+Versions are pinned with `~=`, so patch updates install but a new major version (which
+can change an API under the tool) does not.
 
 > Tip: a virtual environment (`python -m venv venv` then activate it) keeps these
 > dependencies isolated from the rest of your system.
@@ -121,12 +139,35 @@ The effective skip list is the union of the local list and the shared list. See
 [GENERAL]
 ssl_verify = true
 lookup_deadline_seconds = 20
+quota_backoff_minutes = 15
+log_file = analyst_tool.log
+batch_max = 20
 ```
 
 | Key | Purpose |
 |-----|---------|
 | `ssl_verify` | `true` (default) verifies TLS certificates on all outbound calls. `false` enables an insecure fallback — see [SSL verification](#ssl-verification--the-ssl_verify-fallback). Leave it `true` unless you specifically need it. |
 | `lookup_deadline_seconds` | How long a report waits for its slowest service before printing without it. A service that misses the deadline is shown as timed out and listed in the verdict under "signals unavailable". Default `20`; `0` waits indefinitely. |
+| `quota_backoff_minutes` | After a service answers "quota exceeded" (HTTP 429), its live calls are skipped for this many minutes and each lookup prints `[VirusTotal] skipped: quota exceeded — retrying after 14:32` instead. Cached results still show, and the `!` prefix forces a call. A 401/403 (bad key) skips the service until restart. Default `15`; `0` never skips. |
+| `log_file` | Diagnostics log, rotating 5 × 1 MB: one line per lookup and a full traceback for every error the tool recovers from (the console shows a one-line `[error] …` pointing at it). It holds the indicators you looked up — treat it like the cache database. Default `analyst_tool.log`; blank turns the file off. |
+| `batch_max` | Pasting text with several indicators runs a triage table (see [Several indicators at once](#several-indicators-at-once)). This many are looked up per paste; the rest wait for `>>batch next`. Default `20`; `0` turns it off. |
+
+### `[DNS]` — live vs. passive resolution
+
+```ini
+[DNS]
+active_resolution = false
+```
+
+Resolving a suspicious domain (or reverse-resolving an IP) from your workstation sends a
+query that can reach the **attacker's own nameserver** — telling them someone is looking,
+and leaving your resolver in their logs. So by default the tool resolves nothing live:
+
+- **`false` (default, passive):** the domain report's DNS section shows **OTX passive DNS**
+  history instead (newest records first; one OTX call, cached), and the IP report's VPN
+  check skips its reverse-DNS lookup. crt.sh subdomains are shown either way — they
+  come from Certificate Transparency logs and never touch the target.
+- **`true` (active):** live A/AAAA, PTR, MX and NS lookups, as older versions always did.
 
 ### `[CACHE]` — result caching
 
@@ -154,7 +195,8 @@ sslmode = prefer
 | `enabled` | `true` (default) caches lookups; `false` disables caching entirely (every lookup is live). |
 | `backend` | `local` uses a SQLite file (single user); `remote` uses a shared PostgreSQL server (a team saves calls together). |
 | `freshness_days` | A cached result younger than this many days is reused instead of re-querying the API. Default `7`. |
-| `not_found_hours` | A "not found" answer (VirusTotal 404, unknown to Shodan/OTX) is reused for only this many hours. API errors (quota, auth, outage) are never cached. Default `24`. |
+| `not_found_hours` | A "not found" answer (VirusTotal 404, unknown to Shodan/OTX/OpenCTI) is reused for only this many hours. API errors (quota, auth, outage) are never cached. Default `24`. |
+| `opencti_freshness_hours` | OpenCTI results use this shorter window instead of `freshness_days`, since your own intel changes often. Default `6`; the `!` prefix forces a fresh query. |
 | `db_path` | SQLite database file (local backend only). |
 | `force_prefix` | Copy an indicator with this prefix to force a fresh lookup, e.g. `!8.8.8.8`. Default `!`. |
 | `purge_days` | Delete cached entries older than this many days at startup. `0` = never purge. |
@@ -415,7 +457,50 @@ automatically. Detection is evaluated in this order (the first match wins):
 | 8 | **Epoch timestamp** | A 10–16 digit Unix timestamp (optionally with a decimal) | The human-readable date/time |
 | 9 | **OTX Pulse ID** | A 24-character hex pulse ID | Full pulse details: author, name, TLP, created/modified dates, tags, malware families, description, and references |
 | 10 | **Private IP** | An RFC1918 / ULA / link-local address (e.g. `10.0.0.5`, `192.168.1.1`, `fe80::1`) | A note that it's a private address (no external lookups) |
-| 11 | **Public IP (IPv4 or IPv6)** | Any other valid IP address, e.g. `45.145.66.165` or `2001:db8::1` (compressed or full form) | A full IP analysis report — see below. IPv6 goes through the same services; the IPv4-only Tor/VPN/datacenter lists simply answer "No" |
+| 11 | **Public IP (IPv4 or IPv6)** | Any other valid IP address, e.g. `45.145.66.165` or `2606:4700::1111` (compressed or full form) | A full IP analysis report — see below. IPv6 goes through the same services; the IPv4-only Tor/VPN/datacenter lists simply answer "No" |
+
+Values are normalised before detection, so the shapes you copy from logs work
+as-is — the tool prints a one-line note when it changed something:
+
+| You copy | It looks up | Note printed |
+|----------|-------------|--------------|
+| `45.145.66.165:443`, `evil.com:8080` | the IP / domain | `(port 443 ignored — looking up the host)` |
+| `evil.com.` (trailing dot) | `evil.com` | — |
+| `8.8.8.8/32` | `8.8.8.8` | — (`/23` etc. note the network and look up the address) |
+| `evil.com/login`, `1.2.3.4/admin.php` | `http://evil.com/login` as a **URL** | `(no scheme — treated as http://)` |
+| `[2001:db8::1]:443` | the IPv6 address | — |
+| `cve-2021-44228`, `t1059` | `CVE-2021-44228`, `T1059` | — |
+| `C:\Windows\System32\certutil.exe` | LOLBAS `Certutil.exe` (case-insensitive, path stripped) | — |
+
+A domain is only looked up when its last label is a real top-level domain
+and not a file extension, so `report.docx`, `kernel32.dll`, `readme.md` and
+`first.last` no longer trigger a VirusTotal + OTX + OpenCTI + crt.sh round.
+Prefix with `!` to force a domain lookup on something the check rejects (e.g. an
+internal name).
+
+### Several indicators at once
+
+Copy an alert body, an email header block or a list, and the tool pulls out every
+public IP, domain, URL and hash (re-fanged, de-duplicated, excluded domains dropped)
+and runs a **triage table** — one line per indicator:
+
+```
+BATCH: 4 indicators
+    1  ip     45.145.66.165              Likely malicious — AbuseIPDB 97%; datacenter-hosted
+    2  domain evil.com                   Likely malicious — VirusTotal 9 malicious  [notes]
+    3  hash   44d88612fea8a8f36de82e1…   No strong reputation signals  [cached]
+    4  url    https://evil.com/gate.php  Suspicious — VirusTotal 2 malicious
+  >>full N — full report for row N
+```
+
+- `>>full 2` prints row 2's complete report from memory (no second API call) and makes
+  it the target for a following `>>note`.
+- Each row is a normal lookup: cache hits are free, team notes and the multi-user
+  notice apply, and `>>report` can export them.
+- At most `batch_max` (default 20) run per paste; the rest wait for `>>batch next`.
+- Private IPs, ports, file names, MITRE IDs and CVEs in the text are left out.
+- Text containing only **one** indicator does nothing, as before — copy the indicator
+  itself.
 | 13 | **CVE id** | `CVE-2021-44228` | NVD details (CVSS, severity, description) + whether it's on the CISA Known Exploited Vulnerabilities list |
 
 Two behaviours apply to all of the above:
@@ -436,17 +521,33 @@ Two behaviours apply to all of the above:
   never be mistaken for a VirusTotal engine count. If a service failed or timed
   out, the line ends with `signals unavailable: VirusTotal (HTTP 429 — Quota
   exceeded)` and a quiet verdict is marked `(incomplete)` — silence is never
-  presented as "clean".
+  presented as "clean". VirusTotal's count is its own **malicious category**
+  total, so engines that answer "malware" or "phishing" count (they didn't before);
+  a `Flagged by:` line names the first five.
+- **Team tags drive the verdict** — the newest team note with a malicious tag
+  (`#c2`, `#malware`, `#phishing`…) makes it at least `Likely malicious — team: c2
+  (alice 2026-09-01)`. A benign tag (`#fp`, `#benign`, `#clean`…) gives `Benign (team:
+  fp …)` — unless a service is still strongly red, which prints an orange
+  `CONFLICT — team marked benign, services say malicious` with both sides, because an
+  indicator marked FP last year may be compromised today.
 - **Timeouts** — every API call has a per-request timeout, and a whole report
   waits at most `lookup_deadline_seconds` (default 20, `[GENERAL]`) for its
   slowest service. A service that misses the deadline shows as
   `[Shodan] timed out after 20s` and the report prints without it; a service
   that answered with an error shows as `[VirusTotal] unavailable: HTTP 429 — …`.
-- **Not found vs. failed** — "not found in VirusTotal / OTX / Shodan" is a real
-  answer and is cached, but only for `not_found_hours` (default 24) rather than
-  `freshness_days`, since an unknown hash may be analysed tomorrow. A quota,
-  auth or outage error is never cached; if an older result exists it is shown
-  marked `(stale cached result — live lookup failed)`.
+- **Not found vs. failed** — "not found in VirusTotal / OTX / Shodan / OpenCTI"
+  is a real answer and is cached, but only for `not_found_hours` (default 24)
+  rather than `freshness_days`, since an unknown hash may be analysed tomorrow.
+  A quota, auth or outage error is never cached; if an older result exists it
+  is shown marked `(stale cached result — live lookup failed)`.
+- **Quota back-off** — after a 429 the service is skipped for
+  `quota_backoff_minutes` (`[VirusTotal] skipped: quota exceeded — retrying
+  after 14:32`); after a 401/403 it is skipped until restart. Cached results
+  still show; `!` forces a call.
+- **Errors are never silent** — a bug in one lookup path prints
+  `[error] KeyError: 'data'  (details in analyst_tool.log)` and continues; the
+  log holds the traceback and one line per lookup (kind, value, elapsed,
+  which services were unavailable).
 
 Example of an enriched number lookup (shown as both a port and an Event ID):
 
@@ -495,7 +596,7 @@ When you copy a public IPv4 address, the tool fans out to every enabled service 
 | **Tor check** | No | IPs | Exit-node list cached ~45 minutes |
 | **VPN check** | No | IPs (IPv4) | X4BNet VPN ranges (cached ~24h) + WhoIs org/ASN provider-name match; heuristic |
 | **Datacenter check** | No | IPs (IPv4) | X4BNet datacenter ranges, cached ~24 hours |
-| **DNS + crt.sh** | No | Domains | A/AAAA + PTR (stdlib), MX/NS (if dnspython), subdomains from Certificate Transparency |
+| **DNS + crt.sh** | No | Domains | Passive by default: OTX passive DNS + crt.sh subdomains. With `[DNS] active_resolution = true`: live A/AAAA + PTR (stdlib), MX/NS (if dnspython) |
 | **CVE / CISA KEV** | No (optional NVD key) | CVE ids | NVD details + CISA Known Exploited Vulnerabilities status |
 | **Ports / Event IDs** | No | numbers | IANA port registry (cached) + bundled malware-port and Windows Event ID catalogs |
 | **MITRE ATT&CK** | No | Tactic/technique IDs | Local JSON cache refreshed every 90 days |
@@ -637,7 +738,9 @@ Lookups are unchanged — only clipboard lines starting with the `command_prefix
 
 A bare `>>note` (or `>>note <text>`) attaches to your **last** lookup. There's also
 a `python annotate.py add/list/rm/dedupe` CLI for clipboard-free entry. Tags are
-colour-coded (malicious-type tags red, `fp`/`benign` green).
+colour-coded (malicious-type tags red, `fp`/`benign` green). Notes can be attached
+to IPs, hashes, domains, URLs and **CVEs** — a `>>note` right after a CVE lookup
+attaches to that CVE.
 
 Saving the same note twice is guarded against: an identical note from you inside
 `note_dedup_seconds` (default 60) is skipped rather than stored a second time. For
@@ -715,10 +818,23 @@ working offline or during a transient outage.
 
 ## Troubleshooting
 
+**Copying `certutil.exe` does nothing / startup said "LolBas unavailable".**
+The LOLBAS (or LOLDrivers) catalogue couldn't be downloaded and there was no cached
+`lolbas.json` / `drivers.json`. Lookups for it are off until a background retry succeeds
+(every 10 minutes); everything else works normally. Check `analyst_tool.log` for the
+underlying error.
+
 **Nothing happens when I copy an indicator.**
-The tool only reacts when the clipboard *changes*. Copy the value again, or copy something
-else first and then your indicator. Also confirm you saw `Analyst Tool Initialized.` at
-startup.
+Confirm you saw `Analyst Tool Initialized.` at startup. On Windows, copying the same value
+again re-runs it; on macOS/Linux the tool compares text, so copy something else first (or
+use the `!` prefix). A file name (`report.docx`) or a private IP is deliberately not
+looked up. Text containing a single indicator among other words isn't either — copy the
+indicator itself, or paste a block with two or more.
+
+**The tool started in a different folder / couldn't find config.ini.**
+If the folder you start from has no `config.ini`, the tool switches to its own folder
+(or `ANALYST_TOOL_HOME` if set) and prints `Using tool folder: …`. A `config.ini` in the
+folder you start from always wins.
 
 **On Linux it starts but never reports anything.**
 You likely don't have a clipboard backend or a graphical session. Install `xclip`, `xsel`,

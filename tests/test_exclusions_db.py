@@ -34,3 +34,22 @@ def test_disabled_manager_exclusions():
     m.add_exclusion("a.com")        # must not raise
     m.remove_exclusion("a.com")
     m.print_exclusions()
+
+
+def test_duplicate_exclusions_collapsed_and_prevented(tmp_path):
+    import analyst_tool_cache as C
+    p = str(tmp_path / "x.db")
+    be = C.SQLiteBackend(p)
+    # simulate duplicates written by an older version (no unique index yet)
+    conn = be._conn()
+    conn.execute("DROP INDEX IF EXISTS ux_excl_domain")
+    for who in ("alice", "bob"):
+        conn.execute("INSERT INTO exclusions (domain, added_by, created_at) VALUES (?,?,?)",
+                     ("dup.example.com", who, 1.0))
+    conn.commit()
+    be2 = C.SQLiteBackend(p)                      # schema pass collapses them
+    rows = [r for r in be2.list_exclusions() if r["domain"] == "dup.example.com"]
+    assert len(rows) == 1 and rows[0]["added_by"] == "alice"
+    assert be2.add_exclusion("dup.example.com", "carol") is False
+    assert be2.add_exclusion("new.example.com", "carol") is True
+    assert be2.add_exclusion("new.example.com", "dave") is False

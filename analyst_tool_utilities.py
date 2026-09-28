@@ -92,6 +92,73 @@ def api_error_message(response):
 
 
 _lookup_deadline_cache = None
+_dns_active_cache = None
+
+
+def get_batch_max_from_config():
+    """[GENERAL] batch_max: how many indicators from one pasted block are
+    looked up at once (default 20; 0 turns multi-indicator paste off)."""
+    try:
+        cfg = ConfigParser()
+        cfg.read("config.ini")
+        return max(0, int(cfg.get("GENERAL", "batch_max", fallback="20")))
+    except Exception:
+        return 20
+
+
+def ensure_tool_home(announce=True):
+    """Make the tool's folder the working directory when it isn't already.
+
+    config.ini, the cache database, the log, reports/ and every downloaded
+    feed (lolbas.json, cisa_kev.json, tor_exit_nodes.txt, …) are relative
+    paths. Launched from a shortcut whose "Start in" is elsewhere, the tool
+    used to find no config, start an empty cache and re-download every feed.
+
+    Rule: if the current folder has a config.ini, nothing changes (running
+    deliberately with a separate config keeps working). Otherwise switch to
+    ANALYST_TOOL_HOME if set, else the folder this file lives in — provided
+    it has a config.ini (or ANALYST_TOOL_HOME was set explicitly).
+    Returns the new folder, or None when nothing changed.
+    """
+    try:
+        if os.path.isfile("config.ini"):
+            return None
+        env_home = os.environ.get("ANALYST_TOOL_HOME", "").strip()
+        home = os.path.abspath(env_home or os.path.dirname(os.path.abspath(__file__)))
+        if not os.path.isdir(home) or home == os.path.abspath(os.getcwd()):
+            return None
+        if not env_home and not os.path.isfile(os.path.join(home, "config.ini")):
+            return None
+        os.chdir(home)
+    except Exception:
+        return None
+    if announce:
+        print("Using tool folder: " + home)
+    return home
+
+
+def dns_active_resolution():
+    """[DNS] active_resolution (default false).
+
+    Live DNS from the analyst's workstation — resolving a suspicious domain,
+    reverse-resolving an IP, MX/NS — sends queries that can end at the
+    attacker's own authoritative nameserver, telling them someone is looking.
+    Off by default: the domain report then uses passive DNS (OTX) instead,
+    and the IP report's VPN check skips its PTR lookup.
+    """
+    global _dns_active_cache
+    if _dns_active_cache is not None:
+        return _dns_active_cache
+    active = False
+    try:
+        cfg = ConfigParser()
+        cfg.read("config.ini")
+        active = str(cfg.get("DNS", "active_resolution", fallback="false")).strip().lower() \
+            in ("true", "1", "yes", "on")
+    except Exception:
+        active = False
+    _dns_active_cache = active
+    return active
 
 
 def get_lookup_deadline_from_config():
@@ -645,7 +712,9 @@ def check_vpn(suspect_ip, org_text=None):
     """
     in_list = is_vpn_ip(suspect_ip)
 
-    ptr = resolve_ptr(suspect_ip)   # bounded reverse DNS (None on miss/timeout)
+    # Bounded reverse DNS (None on miss/timeout) — only when live DNS is
+    # enabled: a PTR query for the IP reaches the IP owner's nameserver.
+    ptr = resolve_ptr(suspect_ip) if dns_active_resolution() else None
 
     provider = vpn_provider_from_text(" ".join(x for x in (ptr, org_text) if x))
 
@@ -748,6 +817,21 @@ def check_datacenter(suspect_ip):
 # Refang — turn a defanged indicator back into a real one before detection
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _spelled_dots(m):
+    """'evil dot com' -> 'evil.com', but only when the result ends in a real
+    top-level domain: 'alice dot smith' in a note or email stays as written.
+    (Without a TLD-aware validators package, fall back to the old rule.)"""
+    text = m.group(0)
+    joined = re.sub(r'(?i)\s+dot\s+', '.', text)
+    try:
+        from analyst_tool_classify import looks_like_domain, _validators_has_consider_tld
+        if _validators_has_consider_tld() and not looks_like_domain(joined):
+            return text
+    except Exception:
+        pass
+    return joined
+
+
 def refang(value):
     """Re-fang a defanged indicator so the detection regexes match it.
 
@@ -763,10 +847,14 @@ def refang(value):
     if not value:
         return value
     s = value
-    s = re.sub(r'(?i)hxxp', 'http', s)                       # hxxp(s) -> http(s)
+    # hxxp(s) -> http(s), only as a URL scheme: a bare replace also rewrote
+    # the middle of words and paths ("shxxpell" -> "shttpell").
+    s = re.sub(r'(?i)\bhxxp(s?)(?=\[?:)',
+               lambda m: 'http' + m.group(1).lower(), s)
     s = re.sub(r'\[\.\]|\(\.\)|\{\.\}', '.', s)              # [.] (.) {.}
     s = re.sub(r'(?i)\[dot\]|\(dot\)|\{dot\}', '.', s)       # [dot] (dot) {dot}
-    s = re.sub(r'(?i)\s+dot\s+', '.', s)                     # " dot "
+    s = re.sub(r'(?i)[a-z0-9-]+(?:\s+dot\s+[a-z0-9-]+)+',
+               _spelled_dots, s)                              # " dot "
     s = re.sub(r'\[@\]|\(@\)|\{@\}', '@', s)                 # [@] (@) {@}
     s = re.sub(r'(?i)\[at\]|\(at\)|\{at\}', '@', s)          # [at] (at) {at}
     s = s.replace('[://]', '://').replace('[:]', ':').replace('[/]', '/')

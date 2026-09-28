@@ -34,6 +34,8 @@ You can enter notes three ways — pick whichever is comfortable:
 | `>>note-rm <indicator>` | Remove **your** notes for an indicator |
 | `>>note-dedupe [indicator] [dry]` | Remove **your** duplicate notes, keeping the oldest copy |
 | `>>find <text and/or #tags>` | Search all notes/tags, e.g. `>>find #c2` |
+| `>>full N` | Full report for row N of the last multi-indicator paste (from memory) |
+| `>>batch next` | Look up the next `batch_max` indicators from a large paste |
 | `>>history [N] [team]` | Your (or everyone's) recent lookups |
 | `>>report [N] [clip]` | Export the last N lookups to a ticket-ready file (or clipboard) |
 | `python annotate.py find "<query>"` | Search notes via CLI |
@@ -48,8 +50,15 @@ You can enter notes three ways — pick whichever is comfortable:
 | `>>exclude-list` | Show the shared exclusion list |
 | `python annotate.py exclude add/list/rm <domain>` | Manage exclusions via CLI |
 
-`<indicator>` is an IP, hash, domain, or URL. Tags are written inline as
+`<indicator>` is an IP, hash, domain, URL, or CVE. Tags are written inline as
 `#tag` inside a note, or as bare words with `>>tag`.
+
+**Tags drive the verdict.** The newest note with a malicious tag (`c2`, `malware`,
+`phishing`, `malicious`, `ransomware`, `apt`, `exploit`, `trojan`, `botnet`,
+`suspicious`) makes the verdict at least *Likely malicious*; a benign tag (`fp`,
+`benign`, `clean`, `whitelisted`, `known-good`, `internal`) makes it *Benign (team)* —
+or an orange *CONFLICT* when a service is still strongly red. Other tags are labels
+only.
 
 ---
 
